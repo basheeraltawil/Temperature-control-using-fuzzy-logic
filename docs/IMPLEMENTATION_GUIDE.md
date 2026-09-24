@@ -5,6 +5,20 @@ livestock house or cold store. It follows the order used on industrial automatio
 projects: **specify → design → build → virtually commission → commission → operate**.
 Every step names the `agriclimate` tool that supports it.
 
+```mermaid
+flowchart TB
+  subgraph PLAN["plan and design"]
+    direction LR
+    A["1 · specify<br/>scenario YAML"] --> B["2-5 · architecture · hardware<br/>safety · I/O list"] --> C["6 · deploy<br/>software"]
+  end
+  subgraph RUN["commission and operate"]
+    direction LR
+    D["7 · virtual<br/>commissioning"] --> E["8 · on-site<br/>commissioning"] --> F["9 · staged<br/>AI roll-out"] --> G["10 · operate"]
+  end
+  PLAN --> RUN
+  G -. "new season or building change" .-> E
+```
+
 > **Safety first.** Software, including this project and any AI component, is never the only
 > protection for crops, animals or people. Every installation needs independent, hard-wired
 > protection (high-limit and frost thermostats, burner safety controls, alarm dialer).
@@ -30,24 +44,69 @@ Write one scenario file per zone and season, then **simulate before buying hardw
 agriclimate run my_zone.yaml --controllers fuzzy_pi pid mpc --plot my_zone.png
 ```
 
+```mermaid
+flowchart TD
+  R["crop recipe, limits,<br/>design weather"] --> Y["scenario YAML"]
+  Y --> SIM["agriclimate run"]
+  SIM --> Q{"stress hours = 0 and<br/>in-band % acceptable?"}
+  Q -- "yes" --> OK["freeze the specification<br/>and size the hardware"]
+  Q -- "no, actuators at 100 %" --> UP["increase heater / cooler / vent<br/>capacity in facility_overrides"] --> SIM
+  Q -- "no, actuators not saturated" --> TU["agriclimate tune"] --> SIM
+```
+
 Check that the heater, cooler and ventilation capacities in `facility_overrides` can hold the
 design conditions. The frost and heat-wave scenarios show what an undersized actuator looks
 like.
 
 ## 2. Control architecture
 
-```
- Level 4  Enterprise / cloud   MQTT → Grafana / InfluxDB / SCADA, LLM shift reports, recipe library
- Level 3  Supervisory (edge)   ROS 2 or edge_loop: MPC, AI anomaly monitor, recipes, logging (rosbag2)
- Level 2  Control (PLC)        FB_FuzzyPIClimate (generated ST), interlocks, heartbeat watchdog
- Level 1  Field                sensors, 4-20 mA / 0-10 V I/O, contactors, VFDs, valves
- Level 0  Hard-wired safety    high-limit & frost thermostats, burner manager, E-stop, alarm dialer
+```mermaid
+flowchart TB
+  L4["Level 4 · enterprise / cloud<br/>MQTT → Grafana · InfluxDB · SCADA · LLM shift reports · recipe library"]
+  L3["Level 3 · supervisory edge<br/>ROS 2 or edge_loop · MPC · AI anomaly monitor · recipes · rosbag2 logging"]
+  L2["Level 2 · control, PLC<br/>FB_FuzzyPIClimate (generated ST) · interlocks · heartbeat watchdog"]
+  L1["Level 1 · field<br/>sensors · 4-20 mA / 0-10 V I/O · contactors · VFDs · valves"]
+  L0["Level 0 · hard-wired safety<br/>high-limit and frost thermostats · burner manager · E-stop · alarm dialer"]
+  L4 <-- "MQTT over TLS" --> L3
+  L3 <-- "Modbus TCP or OPC UA" --> L2
+  L2 <-- "wired I/O" --> L1
+  L0 -. "cuts or forces outputs<br/>without any software" .-> L1
 ```
 
 * **The PLC can run the site by itself.** It holds the generated fuzzy-PI function block,
   every interlock and a watchdog on the edge computer's heartbeat (holding register 3).
   If the edge computer, network or ROS stack fails, the PLC switches to local fuzzy-PI
   control within 5 s. The virtual PLC (`agriclimate.io.plc_simulator`) shows this behaviour.
+
+  The PLC decides who is in control on every scan:
+
+  ```mermaid
+  stateDiagram-v2
+    direction LR
+    [*] --> LOCAL
+    LOCAL --> REMOTE: remote requested and heartbeat changing
+    REMOTE --> LOCAL: heartbeat unchanged for 5 s or remote released
+    LOCAL: LOCAL · PLC runs FB_FuzzyPIClimate
+    REMOTE: REMOTE · PLC applies edge commands
+  ```
+
+  What happens when the edge computer fails:
+
+  ```mermaid
+  sequenceDiagram
+    participant E as Edge computer
+    participant P as PLC
+    participant F as Field devices
+    loop every control period
+      E->>P: heater, cooler, vent, heartbeat + 1, remote = 1
+      P->>F: edge commands (REMOTE)
+    end
+    Note over E: crash, network loss or reboot
+    P->>P: heartbeat unchanged for 5 s
+    P->>P: reset and start local fuzzy-PI (bumpless)
+    P->>F: local commands (LOCAL)
+    Note over P,F: interlocks and hard-wired protection stay active throughout
+  ```
 * **The edge layer adds optimisation and intelligence**: MPC with weather forecasts, the AI
   anomaly monitor, recipe scheduling and data logging. Losing it degrades performance but
   keeps the site safe.
@@ -78,6 +137,24 @@ times.
 
 ## 4. Safety and compliance checklist
 
+Protection is layered, so that no single failure, including a software or AI failure, can harm
+the crop or animals:
+
+```mermaid
+flowchart TB
+  AI["AI / LLM · advisory or subtractive only"] --> CTRL["controller · fuzzy-PI · PID · MPC"]
+  CTRL --> SUP["safety supervisor · validation · limits · interlocks"]
+  SUP --> PLCI["PLC interlocks + watchdog fallback"]
+  PLCI --> HWS["hard-wired thermostats · burner manager · E-stop"]
+  HWS --> ACT["actuators"]
+  SUP -. "alarms" .-> ALR["alarm dialer with backup power"]
+  HWS -. "alarms" .-> ALR
+  ALR -. "calls" .-> OPS["operator on call"]
+```
+
+Each layer can only restrict what the layer above it asks for.
+
+
 - [ ] Hard-wired **high-limit thermostat** that cuts heating independently of the PLC
       (manual reset), and a **frost thermostat** that forces heating on or raises an alarm.
 - [ ] Burners use a certified burner/flame safeguard control (e.g. EN 298). The PLC only
@@ -93,6 +170,33 @@ times.
       per-device credentials. Remote setpoints are range-checked (`MqttBridge`).
 
 ## 5. I/O list template
+
+```mermaid
+flowchart TB
+  subgraph IN["field inputs"]
+    direction LR
+    T1["TT-101 · Pt100<br/>4-20 mA transmitter"]
+    T2["TT-102 · Pt100<br/>4-20 mA transmitter"]
+    RH["MT-101 · RH"]
+    WS["TT-001 · RT-001<br/>weather station"]
+  end
+  subgraph PLCB["PLC"]
+    direction LR
+    AI["analog inputs<br/>scaled ×100 → IR 0-4"]
+    AO["HR 0-4 → analog /<br/>digital outputs"]
+  end
+  subgraph OUT["field outputs"]
+    direction LR
+    HV["HV-201 · heating"]
+    CU["CU-301 · pad / compressor"]
+    VM["VM-401 · vents / fans"]
+  end
+  T1 & T2 & RH & WS --> AI
+  AI -- "Modbus TCP read" --> EDGE["edge computer"]
+  EDGE -- "Modbus TCP write + heartbeat" --> AO
+  AO --> HV & CU & VM
+```
+
 
 | Tag | Signal | Type | Range / scaling | Modbus register |
 |---|---|---|---|---|
@@ -117,6 +221,25 @@ pip install -e ".[ai,field]"
 agriclimate export --out generated          # PLC ST, C header, MATLAB FIS
 ```
 
+```mermaid
+flowchart LR
+  subgraph SITE["climate zone"]
+    PLCD["PLC<br/>FB_FuzzyPIClimate"]
+    MCU["optional ESP32 nodes<br/>fuzzy_pi_lut.h · micro-ROS"]
+  end
+  subgraph EDGEB["edge computer · Ubuntu 22.04"]
+    ROS["ROS 2 launch<br/>or edge_loop (systemd)"]
+    BAG["rosbag2 / CSV logs"]
+  end
+  subgraph OPS["operations network"]
+    MQ["MQTT broker (TLS)"] --> GF["Grafana · SCADA · HMI"]
+  end
+  PLCD <-- "Modbus TCP" --> ROS
+  MCU -. "Wi-Fi / DDS" .-> ROS
+  ROS --> BAG
+  ROS <-- "telemetry · alarms ·<br/>range-checked setpoints" --> MQ
+```
+
 1. **PLC**: import `generated/plc/FB_FuzzyPIClimate.st` (TIA Portal: *External source files*;
    CODESYS/TwinCAT: add as a POU). Call it cyclically (e.g. 1 s), connect scaled I/O, add the
    interlocks and watchdog logic from `plc_simulator.VirtualPLC._step`. The generated block
@@ -138,6 +261,19 @@ python -m agriclimate.io.plc_simulator --port 5020 --time-scale 30 &
 python -m agriclimate.io.edge_loop --plc 127.0.0.1 --port 5020 --period 1 --time-scale 30
 ```
 
+```mermaid
+flowchart LR
+  subgraph VPLC["python -m agriclimate.io.plc_simulator"]
+    TWIN["digital twin<br/>facility + weather + sensors"]
+    REG["Modbus registers<br/>same map as the real PLC"]
+    WD["heartbeat watchdog<br/>+ local fuzzy-PI"]
+    TWIN <--> REG
+    REG --> WD --> TWIN
+  end
+  EL["edge_loop or<br/>ROS 2 hardware.launch"] <-- "Modbus TCP · port 5020" --> REG
+  EL -- "MQTT" --> DASH["dashboard under test"]
+```
+
 Check register scaling and signs, heartbeat fallback (stop the edge loop and the PLC log must
 show `LOCAL`), alarm routing to MQTT, and the fault scenarios
 (`greenhouse_sensor_actuator_faults`) through the whole chain. Once the real PLC program
@@ -145,6 +281,23 @@ exists, point the edge loop at a PLC simulator (PLCSIM Advanced / CODESYS SoftPL
 hardware-in-the-loop testing.
 
 ## 8. On-site commissioning
+
+```mermaid
+flowchart TD
+  L["1 · loop checks"] --> C["2 · sensor calibration"] --> S["3 · open-loop step tests"]
+  S --> ID["4 · agriclimate identify --csv"]
+  ID --> Q1{"1 h rollout RMSE < 1 K?"}
+  Q1 -- "no" --> MORE["log more varied data<br/>(night, sunny day, vents)"] --> ID
+  Q1 -- "yes" --> TW["5 · calibrate the twin"] --> TN["6 · agriclimate tune<br/>apply with 10-20 % margin"]
+  TN --> FB["7 · fallback and alarm tests"]
+  FB --> Q2{"all tests passed?"}
+  Q2 -- "no" --> FIX["fix wiring, PLC logic<br/>or parameters"] --> FB
+  Q2 -- "yes" --> ACC["8 · 7-day acceptance run"]
+  ACC --> Q3{"KPIs match the simulation?"}
+  Q3 -- "yes" --> HAND["hand over to operation"]
+  Q3 -- "no" --> TW
+```
+
 
 1. **Loop checks**: force each output from the HMI and confirm the right device moves the
    right way at 0, 50 and 100 %.
@@ -171,6 +324,26 @@ hardware-in-the-loop testing.
 
 ## 9. Deploying the AI components safely
 
+```mermaid
+gantt
+  title Staged AI roll-out, example with commissioning finished on 5 January
+  dateFormat YYYY-MM-DD
+  axisFormat %d %b
+  tickInterval 1week
+  section Anomaly monitor
+    collect healthy data           : a1, 2026-01-05, 2w
+    shadow mode, alarms only       : a2, after a1, 4w
+    exclusion enabled              : a3, after a2, 4w
+  section MPC
+    identify model                 : m1, 2026-01-05, 2w
+    shadow, log demand only        : m2, after m1, 4w
+    enabled with fuzzy-PI fallback : m3, after m2, 4w
+  section LLM assistant
+    offline recipe drafts          : l1, 2026-01-05, 2w
+    agronomist reviews each recipe : l2, after l1, 4w
+    validator + approval workflow  : l3, after l2, 4w
+```
+
 | Phase | Anomaly monitor | MPC | LLM assistant |
 |---|---|---|---|
 | Weeks 0–2 | collect healthy data | identify the model | draft recipes offline only |
@@ -187,6 +360,16 @@ hardware-in-the-loop testing.
   approved recipe. Recipes are simulated (`agriclimate advise ... --simulate`) before use.
 
 ## 10. Operation and maintenance
+
+```mermaid
+timeline
+  title Recurring maintenance
+  Every shift : check dashboards and active alarms : read AI shift report
+  Monthly : compare probes with a reference thermometer : clean aspirated shields and fans
+  Each season : test thermostats and alarm dialer : re-identify the model and re-tune : retrain the anomaly monitor
+  After building changes : new screens, glazing or fans mean re-running system identification
+```
+
 
 * Dashboards: temperature vs setpoint, actuator positions, `/diagnostics` levels, energy per
   day, anomaly scores.

@@ -22,48 +22,129 @@ at its core and is combined with AI:
 | **Embedded export** | the fuzzy controller compiles to an **IEC 61131-3 Structured Text** function block (PLC) and a **C99 header** (ESP32/STM32/Arduino) |
 
 ```mermaid
-flowchart LR
-  subgraph Field["Field / PLC  (Level 0-2)"]
-    S["2x temperature, RH,<br/>weather station"] --> PLC
-    PLC["PLC: I/O, interlocks,<br/>FB_FuzzyPIClimate (generated ST),<br/>heartbeat watchdog"] --> A["heater · vents · pad/compressor"]
-    HW["hard-wired high/frost<br/>thermostats"] -.-> A
+flowchart TB
+  subgraph L4["Level 4 · operations"]
+    direction LR
+    LLM["LLM assistant<br/>advisory only"]
+    SCADA["SCADA · Grafana · cloud"]
   end
-  subgraph Edge["Edge (Level 3): ROS 2 or edge_loop"]
-    B[modbus_bridge / plant_sim] --> C
-    SCH[setpoint_scheduler<br/>crop recipe] --> C
-    AI[anomaly_monitor<br/>IsolationForest + model] -- excluded sensors --> C
-    C["climate_controller<br/>fuzzy-PI · PID · MPC<br/>allocator + safety supervisor"] --> B
+  subgraph L3["Level 3 · edge computer · ROS 2 or edge_loop"]
+    direction LR
+    SCH["recipe scheduler"] --> RT["climate cycle<br/>fuzzy-PI · PID · MPC<br/>allocator + safety supervisor"]
+    AI["AI anomaly monitor"] -- "excluded sensors" --> RT
   end
-  PLC <-- "Modbus TCP" --> B
-  C -- "MQTT / diagnostics" --> SCADA["SCADA · Grafana · cloud"]
-  LLM["LLM assistant<br/>(advisory only)"] -- "validated recipe" --> SCH
+  subgraph L12["Level 1-2 · PLC and field devices"]
+    direction LR
+    S["2 × air temperature<br/>RH · weather station"] --> PLC["PLC · I/O · interlocks<br/>heartbeat watchdog<br/>FB_FuzzyPIClimate"] --> A["heater · vents<br/>pad cooling / compressor"]
+  end
+  subgraph L0["Level 0 · hard-wired safety"]
+    HW["high-limit and frost thermostats · burner manager · E-stop · alarm dialer"]
+  end
+  LLM -- "validated recipe" --> SCH
+  SCADA <-- "MQTT · diagnostics" --> RT
+  RT <-- "Modbus TCP" --> PLC
+  L12 ~~~ L0
+  HW -. "overrides" .-> A
 ```
+
+Level 0 works independently of all software: it cuts heating or forces protection even if the PLC
+and edge computer fail.
 
 ---
 
-## 1. Why the original design needed to change
+## 1. How it works
 
-`agriclimate analyze-legacy` evaluates the original FIS:
+### 1.1 One control cycle
 
+`agriclimate/runtime.py` holds the complete cycle. The simulator, the ROS 2 controller node and
+the Modbus edge loop all call the same `ClimateRuntime.step()`, so what is tested in simulation
+is exactly what runs on the plant.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IO as Sensors (twin, PLC or ROS topics)
+  participant AI as AI anomaly monitor
+  participant SV as Safety supervisor
+  participant C as Controller (fuzzy-PI / PID / MPC)
+  participant AL as Split-range allocator
+  participant ACT as Actuators
+  IO->>AI: redundant temperatures, last command, weather
+  AI-->>SV: sensors to exclude (advisory)
+  IO->>SV: raw readings
+  SV->>SV: validate range and rate, fuse sensors, set quality GOOD / DEGRADED / BAD
+  alt quality BAD
+    SV->>ACT: fail-safe command (open-loop frost protection)
+  else quality GOOD or DEGRADED
+    SV->>C: validated temperature, setpoint, weather, forecast
+    C->>AL: signed demand u in [-1, 1]
+    AL->>SV: heater, vent, cooler request
+    SV->>SV: limits, heat/cool interlock, slew limit, compressor anti-short-cycle
+    SV->>ACT: safe command 0..1 for each actuator
+  end
 ```
-rules: 17 of 25 input combinations            → no rule fires on 5.5 % of the input plane
-sensed=20 target=20 → heater PWM 62.8, cooler PWM 62.8   (both on at setpoint)
-sensed=10 target=10 → heater PWM 43.4, cooler PWM 43.4
+
+### 1.2 Fuzzy-PI controller
+
+The controller works on the **error**, not on absolute temperatures, so one 7×7 rule base
+serves every crop and setpoint. Three gains adapt it to a facility, and the auto-tuner can set
+them.
+
+```mermaid
+flowchart LR
+  SP["setpoint r"] --> E(("e = r − T"))
+  T["validated T"] --> E
+  E --> KE["× ke<br/>clip ±1"] --> FIS
+  E --> D["d/dt + 30 s filter<br/>× kr, clip ±1"] --> FIS
+  FIS["Mamdani FIS<br/>7 × 7 rules<br/>NB … PB"] --> DU["Δu"]
+  DU --> INT["u ← u + ku · Δu · dt<br/>clamp ±1 (anti-windup)"]
+  INT --> U["demand u<br/>+ heat / − cool"]
 ```
 
-![legacy vs new control surfaces](docs/images/fis_surfaces.png)
+### 1.3 Split-range allocator
 
-1. **Absolute-temperature inputs** on a fixed ±50 °C universe. The rules only suit one setpoint
-   region, so a new crop or season means rewriting them.
-2. **The "zero" output MF has its centroid at ~43/255**, so heater and cooler always run
-   together and fight. The legacy heater and cooler overlap for 95–100 % of every scenario run.
-3. **Gaps in the rule base**: 8 input combinations have no rule, and the output there is
-   undefined.
-4. **No integral action, no anti-windup, no sensor validation, no interlocks.**
+The allocator turns the signed demand into actuator commands. Heating and cooling can never
+run together, and free cooling with outdoor air is used before any energy is spent.
 
-The new **fuzzy-PI** works on the normalised error and error rate, so one rule base serves every
-setpoint. Three scaling gains (`ke`, `kr`, `ku`) adapt it to a facility and can be tuned
-automatically. Its output is a signed demand that the allocator sequences safely.
+```mermaid
+flowchart TD
+  U["demand u"] --> Q1{"u > deadband?"}
+  Q1 -- yes --> H["heater = scaled u"]
+  Q1 -- no --> Q2{"u < −deadband?"}
+  Q2 -- no --> IDLE["idle: minimum ventilation only"]
+  Q2 -- yes --> Q3{"outdoor colder than<br/>indoor − margin?"}
+  Q3 -- yes --> V["open vents first,<br/>then pad / compressor"]
+  Q3 -- no --> CL["pad / compressor only"]
+  H --> RH{"RH > rh_max and<br/>not cooling?"}
+  IDLE --> RH
+  V --> OUT["heater · cooler · vent"]
+  CL --> OUT
+  RH -- yes --> DH["heat-and-vent<br/>dehumidification"] --> OUT
+  RH -- no --> OUT
+```
+
+### 1.4 Safety supervisor modes
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> AUTO
+  AUTO --> LOW_LIMIT: too cold
+  LOW_LIMIT --> AUTO: warmed past hysteresis
+  AUTO --> HIGH_LIMIT: too hot
+  HIGH_LIMIT --> AUTO: cooled past hysteresis
+  AUTO --> FAILSAFE: no valid sensor
+  FAILSAFE --> AUTO: sensor valid again
+  AUTO: AUTO · controller + allocator, slew-limited
+  LOW_LIMIT: LOW_LIMIT · heater 100 %, vents and cooler closed
+  HIGH_LIMIT: HIGH_LIMIT · cooler and vents 100 %, heater off
+  FAILSAFE: FAILSAFE · open-loop heating from outdoor temperature
+```
+
+"Too cold" and "too hot" are the frost and heat limits from the scenario's `supervisor:` block.
+The limit modes stay latched until the temperature has recovered by `limit_hysteresis`
+(1 K by default). `FAILSAFE` starts when no sensor has been valid for longer than
+`stale_timeout_s`. On return, the controller restarts bumplessly from its last demand.
 
 ## 2. Results (digital twin, 8 agricultural scenarios)
 
@@ -115,6 +196,23 @@ KPIs use the **true** air temperature, which is what the crop or animals experie
 All scenarios are YAML files in [`scenarios/`](scenarios). Each contains the agronomic
 background, facility, weather, recipe, limits and faults.
 
+```mermaid
+mindmap
+  root((agricultural<br/>scenarios))
+    Greenhouses
+      tomato day/night DIF
+      cucumber heat wave
+      sensor and boiler faults
+    Protected cultivation
+      strawberry frost night
+      seed germination chamber
+    Livestock
+      broiler brooding curve
+    Post-harvest and fungi
+      cold store door openings
+      mushroom spawn to pinning
+```
+
 | Scenario | Facility | Agricultural task | What it tests |
 |---|---|---|---|
 | `tomato_greenhouse_spring` | 1000 m² glasshouse | tomato day/night DIF 21/17 °C with 2 K pre-dawn drop | solar gain, vent staging, recipe ramps, RH < 88 % |
@@ -125,6 +223,16 @@ background, facility, weather, recipe, limits and faults.
 | `cold_storage_door_openings` | post-harvest cold room | vegetables at 2 °C, forklift door every 3 h | refrigeration, door disturbances, freezing limit |
 | `mushroom_spawn_to_pinning` | mushroom room | spawn run 25 °C → pinning drop to 18 °C | compost heat, recipe step, high RH |
 | `greenhouse_sensor_actuator_faults` | glasshouse | tomato crop with drift, frozen sensor, spikes and boiler loss | supervisor, AI anomaly monitor |
+
+```mermaid
+flowchart LR
+  Y["scenario.yaml"] --> F["facility preset<br/>+ overrides"]
+  Y --> W["weather<br/>synthetic or CSV"]
+  Y --> R["setpoint recipe<br/>constant · day/night · table · brooding"]
+  Y --> LIM["crop limits · allocator ·<br/>supervisor settings"]
+  Y --> FD["faults and disturbances"]
+  F & W & R & LIM & FD --> SIM["closed-loop simulation"] --> K["KPIs · plots · CSV logs"]
+```
 
 Write your own by copying one of them. You can override any facility parameter
 (`facility_overrides:`), replay recorded weather (`weather: {type: csv, path: ...}`), and inject
@@ -157,6 +265,53 @@ print(res.metrics); res.log.to_csv("run.csv")
 
 ## 5. AI features
 
+```mermaid
+flowchart LR
+  subgraph DATA["data"]
+    LOG["logged run or<br/>excitation experiment"]
+    HL["healthy operation"]
+  end
+  subgraph LEARN["learning (offline)"]
+    SID["system identification<br/>grey-box model + actuator lags"]
+    IF["IsolationForest<br/>+ calibrated threshold"]
+    DE["differential evolution<br/>gain tuning on the twin"]
+  end
+  subgraph RUN["online"]
+    MPC["MPC<br/>forecast + recipe preview"]
+    MON["anomaly monitor"]
+    CTRL["fuzzy-PI / PID"]
+  end
+  subgraph LLMG["LLM (advisory)"]
+    ADV["recipe draft"] --> VAL{"deterministic<br/>validator"} --> SIMC["simulate"] --> HUM{"human approval"}
+    REP["shift report"]
+  end
+  LOG --> SID --> MPC
+  SID --> MON
+  HL --> IF --> MON
+  SID -. "calibrated twin" .-> DE --> CTRL
+  MON -- "exclude sensor" --> SUP["safety supervisor"]
+  MPC --> SUP
+  CTRL --> SUP
+  HUM --> SCH["recipe scheduler"]
+  SUP -. "alarms and KPIs" .-> REP
+```
+
+How the anomaly monitor decides:
+
+```mermaid
+flowchart TD
+  X["each sensor, every 60 s"] --> RES["residual = measured change −<br/>change predicted by the learned model"]
+  RES --> WIN["30-sample window features<br/>mean · sum · std · max residual · signal variation"]
+  WIN --> SC{"IsolationForest score below<br/>threshold, or flat-lined signal?"}
+  SC -- "no" --> OK["healthy count +1<br/>release flag after 30"]
+  SC -- "yes" --> CNT["anomaly count +1<br/>flag after 5 in a row"]
+  CNT --> ALL{"all sensors flagged?"}
+  ALL -- "yes" --> CM["common-mode deviation:<br/>process or actuator, exclude none"]
+  ALL -- "no" --> EXC["exclude the flagged sensor<br/>from fusion and raise alarm"]
+  CM --> HT{"heater above 60 % and<br/>persistent shortfall?"}
+  HT -- "yes" --> HA["HEATER_UNDERPERFORMING alarm"]
+```
+
 | Feature | Command / module | Notes |
 |---|---|---|
 | System identification | `agriclimate identify [--csv site_log.csv] --out model.json` · `ai/sysid.py` | energy-balance regressors, actuator lags found by grid search, reports 1 h open-loop RMSE; `residual="mlp"` adds a neural correction |
@@ -184,6 +339,22 @@ ros2 launch agriclimate_ros digital_twin.launch.py scenario:=greenhouse_sensor_a
 ros2 launch agriclimate_ros hardware.launch.py plc_host:=192.168.0.10 namespace:=greenhouse1
 ```
 
+```mermaid
+flowchart TB
+  SS["setpoint_scheduler"] -- "climate/setpoint" --> CC["climate_controller"]
+  PS["plant_sim (twin) or<br/>modbus_bridge (hardware)"] -- "sensors/* · weather/*" --> CC
+  PS -- "sensors/* · weather/*" --> AM["anomaly_monitor"]
+  AM -- "anomaly/excluded_sensors" --> CC
+  CC -- "actuators/heater · cooler · vent" --> PS
+  CC -- "actuators/*" --> AM
+  CC -- "/diagnostics" --> DG["diagnostics aggregator<br/>SCADA · Foxglove · rosbag2"]
+  AM -- "/diagnostics" --> DG
+```
+
+All topics except `/diagnostics` and `/clock` are relative, so they live under the zone
+namespace (for example `/greenhouse1/climate/setpoint`). In the digital twin, `plant_sim`
+also publishes `/clock` and the other nodes run on simulated time.
+
 | Node | Subscribes | Publishes |
 |---|---|---|
 | `plant_sim` (twin) / `modbus_bridge` (hardware) | `actuators/{heater,cooler,vent}` | `sensors/temperature_N`, `sensors/humidity`, `weather/*`, `/clock` (sim only) |
@@ -209,6 +380,15 @@ A Docker image is included: `docker build -f docker/Dockerfile -t agriclimate .`
 agriclimate export --out generated
 ```
 
+```mermaid
+flowchart LR
+  RB["fuzzy-PI rule base<br/>(Python engine)"] --> LUT["precomputed control surface<br/>21 × 21 lookup table"]
+  RB --> FIS["fuzzy_pi_climate.fis<br/>MATLAB"]
+  LUT --> ST["FB_FuzzyPIClimate.st<br/>IEC 61131-3 PLC"]
+  LUT --> CH["fuzzy_pi_lut.h<br/>C99 microcontroller"]
+  LUT --> PY["FuzzyPIController(use_lut=True)<br/>simulation, same numbers"]
+```
+
 * `generated/plc/FB_FuzzyPIClimate.st`: IEC 61131-3 function block (TIA Portal, CODESYS,
   TwinCAT) with the complete incremental fuzzy-PI, including the rate filter and anti-windup.
 * `generated/firmware/fuzzy_pi_lut.h`: allocation-free C99 lookup table with bilinear
@@ -221,6 +401,20 @@ agriclimate export --out generated
 The complete procedure is in **[docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md)**:
 bill of materials, safety and compliance checklist, I/O list, commissioning and AI roll-out.
 In short:
+
+```mermaid
+flowchart TB
+  subgraph P1["design"]
+    direction LR
+    A["1 · specify<br/>recipe and limits"] --> B["2 · architecture<br/>PLC + edge + hard-wired safety"] --> C["3 · select<br/>hardware"] --> D["4 · export<br/>ST / C code"]
+  end
+  subgraph P2["deploy"]
+    direction LR
+    E["5 · virtual<br/>commissioning"] --> F["6 · on-site<br/>commissioning"] --> G["7 · staged<br/>AI roll-out"] --> H["8 · operate<br/>and maintain"]
+  end
+  P1 --> P2
+  H -. "each season: re-identify and re-tune" .-> F
+```
 
 1. **Specify**: write the crop recipe, tolerances and limits as a scenario YAML, or draft it
    with `agriclimate advise`. Simulate it and check actuator sizing.
