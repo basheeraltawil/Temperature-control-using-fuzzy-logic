@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+/results/
+scenarios/recipe_draft.yaml
+*.asv
+slprj/
+/install/
+/log/

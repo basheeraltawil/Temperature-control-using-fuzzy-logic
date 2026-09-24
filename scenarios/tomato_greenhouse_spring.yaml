@@ -1,0 +1,20 @@
+name: tomato_greenhouse_spring
+description: Glass greenhouse, tomato crop, day/night DIF with pre-dawn drop, sunny spring days
+agronomy: >
+  Tomato (Solanum lycopersicum) production: 24-h mean 18-20 degC, day 20-22 degC,
+  night 16-17 degC.  A 2-3 K pre-dawn temperature drop limits stem elongation.
+  Keep RH < 85-90 % to avoid Botrytis; temperatures > 32 degC impair pollination.
+facility: greenhouse_glass
+duration_h: 72
+control_dt_s: 30
+initial: {t_air: 16.0, rh: 80}
+weather: {type: synthetic, t_mean: 11, t_amplitude: 7, rh_mean: 70, solar_peak: 780,
+          sunrise_h: 6, sunset_h: 20, cloudiness: 0.25, seed: 1}
+setpoint: {type: day_night, day: 21, night: 17, day_start_h: 7, day_end_h: 19, ramp_h: 1.5,
+           predawn_drop: 2.0, predawn_h: 1.5}
+comfort_band: 1.0
+crop_limits: {min: 10, max: 32}
+allocator: {vent_stage: 0.6, min_vent: 0.0, rh_max: 88}
+supervisor: {t_low_limit: 6, t_high_limit: 36}
+sensors: {count: 2, noise_std: 0.08, tau_s: 45}
+controllers: [fuzzy_pi, pid, mpc, legacy_fis]

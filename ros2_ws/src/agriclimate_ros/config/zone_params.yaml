@@ -1,0 +1,15 @@
+# Example parameter file: ros2 run agriclimate_ros climate_controller --ros-args --params-file config/zone_params.yaml
+/**:
+  ros__parameters:
+    scenario: tomato_greenhouse_spring
+climate_controller:
+  ros__parameters:
+    controller: fuzzy_pi
+    period: 10.0
+    sensor_count: 2
+    sensor_timeout: 60.0
+    model_path: ""          # JSON from `agriclimate identify` for controller: mpc
+setpoint_scheduler:
+  ros__parameters:
+    recipe_offset_h: 0.0
+    period: 10.0

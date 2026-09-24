@@ -1,0 +1,25 @@
+name: cold_storage_door_openings
+description: Post-harvest cold room at 2 degC, summer, forklift door openings every 3 h
+agronomy: >
+  Carrots, cabbage, leafy greens and most temperate fruit keep best at 0-2 degC
+  with 90-98 % RH.  Temperatures below about -0.5 degC cause freezing injury,
+  every +1 K above optimum roughly shortens shelf life by 10-20 %.  Door
+  openings are the dominant disturbance; the compressor must be protected
+  against short-cycling.
+facility: cold_storage
+duration_h: 48
+control_dt_s: 10
+initial: {t_air: 6.0, rh: 90}
+weather: {type: synthetic, t_mean: 24, t_amplitude: 6, rh_mean: 55, solar_peak: 0, seed: 13}
+setpoint: {type: constant, value: 2.0}
+comfort_band: 1.0
+crop_limits: {min: -0.5, max: 5}
+allocator: {vent_stage: 0.0, min_vent: 0.0}
+supervisor: {sensor_min: -30, t_low_limit: -1.0, t_high_limit: 12, compressor_min_on_s: 180,
+             compressor_min_off_s: 300, failsafe_setpoint: 1.0, failsafe_min_vent: 0.0}
+sensors: {count: 2, noise_std: 0.05, tau_s: 30}
+disturbances:
+  - {kind: door, start_h: 1, period_h: 3, duration_min: 6, ach: 6}    # strip curtain fitted
+controllers: [fuzzy_pi, pid, mpc, legacy_fis]
+controller_params:
+  fuzzy_pi: {ke: 0.6, kr: 150.0, ku: 0.003}

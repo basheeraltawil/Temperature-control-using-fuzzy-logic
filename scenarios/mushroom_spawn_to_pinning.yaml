@@ -1,0 +1,23 @@
+name: mushroom_spawn_to_pinning
+description: Button-mushroom room, spawn run at 25 degC then 'airing' drop to 18 degC to trigger pinning
+agronomy: >
+  Agaricus bisporus: mycelium colonises casing at ~24-25 degC air (compost
+  26-28 degC) with high CO2.  Pinning is induced by lowering air temperature to
+  17-18 degC, raising fresh-air exchange and keeping RH ~ 90-95 %.  The compost
+  itself releases heat, so the room frequently needs cooling even in winter.
+facility: mushroom_room
+duration_h: 96
+control_dt_s: 20
+initial: {t_air: 22.0, rh: 92}
+weather: {type: synthetic, t_mean: 8, t_amplitude: 5, rh_mean: 75, solar_peak: 0, seed: 17}
+setpoint:
+  type: table
+  points: [[0, 25.0], [48, 25.0], [60, 18.0], [96, 18.0]]
+comfort_band: 0.8
+crop_limits: {min: 14, max: 28}
+allocator: {vent_stage: 0.3, min_vent: 0.2, free_cooling_margin: 3.0}
+supervisor: {t_low_limit: 8, t_high_limit: 32, compressor_min_on_s: 120, compressor_min_off_s: 240}
+sensors: {count: 2, noise_std: 0.05, tau_s: 30}
+disturbances:
+  - {kind: internal_gain, start_h: 0, end_h: 48, watts: 3000}    # extra compost heat during spawn run
+controllers: [fuzzy_pi, pid, mpc, legacy_fis]

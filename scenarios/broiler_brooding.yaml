@@ -1,0 +1,23 @@
+name: broiler_brooding
+description: Broiler house in winter, flock days 7-12, falling brooding curve, minimum ventilation
+agronomy: >
+  Day-old chicks need ~32-33 degC; the target is lowered by ~0.3-0.5 K per day to
+  ~21 degC at slaughter age.  Chilling causes huddling, poor growth and
+  ascites; overheating causes panting and mortality.  Minimum ventilation
+  must run even in cold weather to remove ammonia, CO2 and moisture, and the
+  birds' own heat (growing daily) is a major load.
+facility: poultry_house
+facility_overrides: {leakage_ach: 0.5}
+duration_h: 120
+control_dt_s: 30
+initial: {t_air: 28.0, rh: 60}
+weather: {type: synthetic, t_mean: 1, t_amplitude: 4, rh_mean: 85, solar_peak: 0, cloudiness: 0.7, wind_mean: 5, seed: 11}
+setpoint: {type: brooding, start: 32.0, final: 21.0, drop_per_day: 0.4, start_day: 7}
+comfort_band: 1.0
+crop_limits: {min: 24, max: 32}
+allocator: {vent_stage: 0.6, min_vent: 0.015, free_cooling_margin: 2.0}   # ~1 ACH minimum ventilation
+supervisor: {t_low_limit: 18, t_high_limit: 35}
+sensors: {count: 2, noise_std: 0.1, tau_s: 60}
+disturbances:
+  - {kind: internal_gain, start_h: 48, end_h: 120, watts: 10000}   # birds grow -> more body heat
+controllers: [fuzzy_pi, pid, mpc, legacy_fis]

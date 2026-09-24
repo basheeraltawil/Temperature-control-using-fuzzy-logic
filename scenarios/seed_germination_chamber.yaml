@@ -1,0 +1,27 @@
+name: seed_germination_chamber
+description: Insulated germination chamber, tight 25 degC hold, then 20 degC hardening step
+agronomy: >
+  Vegetable seed germination (tomato, pepper, lettuce trays) needs a stable
+  substrate/air temperature: 24-26 degC for tomato & pepper, +-0.5 K. After
+  emergence the temperature is dropped to ~20 degC to harden seedlings and
+  avoid etiolation.  Above 30 degC germination of lettuce is inhibited
+  (thermo-dormancy), below 15 degC it is very slow.
+facility: germination_chamber
+duration_h: 72
+control_dt_s: 10
+initial: {t_air: 20.0, rh: 70}
+weather:   # the chamber sits in an unheated shed: large day/night swing
+  {type: synthetic, t_mean: 14, t_amplitude: 9, rh_mean: 60, solar_peak: 0, cloudiness: 0.5, seed: 3}
+setpoint:
+  type: table
+  points: [[0, 25.0], [48, 25.0], [50, 20.0], [72, 20.0]]
+comfort_band: 0.5
+crop_limits: {min: 15, max: 30}
+allocator: {vent_stage: 0.0, min_vent: 0.05}
+supervisor: {t_low_limit: 8, t_high_limit: 33, compressor_min_on_s: 120, compressor_min_off_s: 180,
+             max_slew_per_s: 0.05}
+sensors: {count: 2, noise_std: 0.03, tau_s: 20, resolution: 0.01}
+controllers: [fuzzy_pi, pid, mpc, legacy_fis]
+controller_params:
+  fuzzy_pi: {ke: 1.0, kr: 120.0, ku: 0.004}
+  pid: {kp: 0.8, ti: 400.0}
