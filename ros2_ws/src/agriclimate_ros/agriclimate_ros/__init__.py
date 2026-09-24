@@ -27,3 +27,19 @@ def _ensure_agriclimate() -> None:
 
 
 _ensure_agriclimate()
+
+
+def _ensure_user_site() -> None:
+    """conda and some shells set PYTHONNOUSERSITE, which hides ~/.local packages
+    (e.g. scikit-learn installed with 'pip install --user') from the ROS nodes.
+    Append the user site as a low-priority fallback when a dependency is missing."""
+    import site
+
+    if importlib.util.find_spec("sklearn") is not None:
+        return
+    user_site = site.getusersitepackages()
+    if os.path.isdir(user_site) and user_site not in sys.path:
+        sys.path.append(user_site)
+
+
+_ensure_user_site()

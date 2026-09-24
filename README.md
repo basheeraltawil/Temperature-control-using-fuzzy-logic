@@ -5,7 +5,15 @@ This project started as a MATLAB Mamdani fuzzy controller
 sensed and a target temperature into two 8-bit PWM signals for a heater and a cooler.
 **Version 2** builds on it: a tested Python package, with ROS 2 / Modbus / MQTT integration, for
 greenhouses, growth chambers, livestock houses, mushroom rooms and cold stores. Fuzzy logic stays
-at its core and is combined with AI:
+at its core and is combined with AI.
+
+**Video: the fuzzy logic system explained.** A walkthrough of the original fuzzy temperature
+controller that this project builds on, covering membership functions, the rule base and the
+PWM outputs:
+
+[![Fuzzy logic temperature control, video walkthrough](https://img.youtube.com/vi/Dvy35QIY8Qo/hqdefault.jpg)](https://www.youtube.com/watch?v=Dvy35QIY8Qo)
+
+What version 2 adds:
 
 | Layer | What it adds |
 |---|---|
