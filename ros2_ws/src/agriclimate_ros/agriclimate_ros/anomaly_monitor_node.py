@@ -5,6 +5,7 @@ the controller's supervisor then drops them from the sensor fusion.  The
 monitor can only *remove* information, never command actuators.
 """
 import math
+import sys
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
@@ -73,7 +74,16 @@ class AnomalyMonitor(Node):
 
 def main():
     rclpy.init()
-    node = AnomalyMonitor()
+    try:
+        node = AnomalyMonitor()
+    except ImportError as exc:
+        # the rest of the stack keeps running without AI supervision
+        rclpy.logging.get_logger("anomaly_monitor").error(
+            f"{exc}. The AI monitor needs scikit-learn for {sys.executable}: "
+            f"'{sys.executable} -m pip install --user scikit-learn' or 'sudo apt install python3-sklearn' "
+            "(check that PYTHONNOUSERSITE is not set). Continuing without the anomaly monitor.")
+        rclpy.try_shutdown()
+        return
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
