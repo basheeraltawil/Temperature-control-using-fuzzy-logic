@@ -191,6 +191,11 @@ ros2 launch agriclimate_ros hardware.launch.py plc_host:=192.168.0.10 namespace:
 | `climate_controller` | sensors, weather, setpoint, `anomaly/excluded_sensors` | `actuators/*`, `climate/demand`, `climate/validated_temperature`, `/diagnostics` |
 | `anomaly_monitor` | sensors, actuators, weather | `anomaly/excluded_sensors`, `/diagnostics` |
 
+> **Which Python?** ROS 2 Humble runs nodes with the system `/usr/bin/python3`. If you installed
+> `agriclimate` into pyenv/conda/venv, the nodes load it directly from this repository checkout
+> anyway (or from `$AGRICLIMATE_HOME`). The system Python still needs the dependencies:
+> `/usr/bin/python3 -m pip install --user numpy scipy pandas pyyaml matplotlib "pydantic>=2" scikit-learn`.
+
 Only standard messages are used (`sensor_msgs`, `std_msgs`, `diagnostic_msgs`), so any SCADA
 bridge, rosbag2, Foxglove or micro-ROS node can connect. One namespace equals one climate zone.
 A Docker image is included: `docker build -f docker/Dockerfile -t agriclimate .`.
