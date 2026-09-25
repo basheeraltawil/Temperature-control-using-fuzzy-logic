@@ -221,8 +221,8 @@ flowchart TB
 
 ```bash
 # edge computer (Ubuntu 22.04)
-git clone https://github.com/basheeraltawil/Temperature-control-using-fuzzy-logic.git
-cd Temperature-control-using-fuzzy-logic
+git clone https://github.com/basheeraltawil/fuzzy-greenhouse-climate-control.git
+cd fuzzy-greenhouse-climate-control
 pip install -e ".[ai,field]"
 agriclimate export --out generated          # PLC ST, C header, MATLAB FIS
 ```
