@@ -1,13 +1,13 @@
 # Fuzzy Greenhouse Climate Control
 
-**Fuzzy logic and AI for agricultural climate control**: greenhouses, vertical farms, germination
-chambers, livestock houses, mushroom rooms and cold stores. Includes a digital twin, model
-predictive control, sensor fault detection, ROS 2 / Modbus / MQTT integration and PLC code export.
-
 [![CI](https://github.com/basheeraltawil/fuzzy-greenhouse-climate-control/actions/workflows/ci.yml/badge.svg)](https://github.com/basheeraltawil/fuzzy-greenhouse-climate-control/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)
 ![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-22314E.svg)
+
+**Fuzzy logic and AI for agricultural climate control**: greenhouses, vertical farms, germination
+chambers, livestock houses, mushroom rooms and cold stores. Includes a digital twin, model
+predictive control, sensor fault detection, ROS 2 / Modbus / MQTT integration and PLC code export.
 
 This project started as a MATLAB Mamdani fuzzy controller
 ([`matlab/temperature_controlling1.fis`](matlab/temperature_controlling1.fis)) that turned a
