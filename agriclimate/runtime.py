@@ -8,7 +8,7 @@ exactly what runs on the plant.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 import numpy as np
@@ -21,6 +21,7 @@ from .plant.facility import ActuatorCommand
 
 @dataclass
 class RuntimeOutput:
+    """Result of one control cycle."""
     command: ActuatorCommand
     temperature: float
     quality: str
@@ -31,6 +32,7 @@ class RuntimeOutput:
 
 
 class ClimateRuntime:
+    """One control cycle shared by simulation, ROS 2 nodes and the edge loop."""
     def __init__(self, controller: Controller, allocator: Optional[SplitRangeAllocator] = None,
                  supervisor: Optional[SupervisorConfig] = None, supervised: bool = True, detector=None):
         self.controller = controller
@@ -47,6 +49,7 @@ class ClimateRuntime:
     def step(self, t_s: float, dt: float, readings: List[float], setpoint: float, rh: float,
              t_out: float, rh_out: float = 60.0, solar: float = 0.0, forecast=None,
              setpoint_preview: Optional[Callable[[float], float]] = None) -> RuntimeOutput:
+        """Run one cycle: monitor, validate, control, allocate, supervise."""
         alarms: List[Alarm] = []
         sup = self.supervisor
         if self.detector is not None:
@@ -57,6 +60,9 @@ class ClimateRuntime:
                 if rep.actuator_fault == "HEATER_UNDERPERFORMING":
                     alarms += sup.raise_external(t_s, "WARN", rep.actuator_fault,
                                                  "AI: heater delivers less heat than the model expects")
+                elif rep.actuator_fault == "COMMON_MODE_DEVIATION":
+                    alarms += sup.raise_external(t_s, "INFO", rep.actuator_fault,
+                                                 "AI: all sensors deviate from the model - check actuators and doors")
         t_valid, quality, new = sup.validate(readings, t_s, dt, self.excluded)
         alarms += new
 

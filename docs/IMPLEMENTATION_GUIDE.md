@@ -118,7 +118,7 @@ flowchart TB
 
 | Function | Industrial choice | Budget / research choice |
 |---|---|---|
-| Air temperature (×2 per zone, redundant) | Pt100/Pt1000 4-wire + 4-20 mA head transmitter in an **aspirated** radiation shield | SHT45 / DS18B20 in a ventilated shield |
+| Air temperature (2–3 per zone) | Pt100/Pt1000 4-wire + 4-20 mA head transmitter in an **aspirated** radiation shield | SHT45 / DS18B20 in a ventilated shield |
 | Humidity | capacitive RH transmitter, 4-20 mA, ±2 % | SHT45 (I²C) |
 | Outdoor weather | weather station with pyranometer, wind and rain (Modbus RTU) | online forecast API + local temperature probe |
 | PLC / controller | Siemens S7-1200/1500, CODESYS (WAGO, Beckhoff, Schneider M241) | Arduino Opta / Controllino / ESP32 + relay board |
@@ -128,6 +128,12 @@ flowchart TB
 | Ventilation | vent motors with position feedback (4-20 mA), exhaust fans on a VFD | servo / linear actuator |
 | Networks | Modbus TCP or OPC UA to the PLC, MQTT (TLS) to SCADA/cloud | Modbus RTU (RS-485), Wi-Fi MQTT |
 | Wireless sensor nodes | – | ESP32 + micro-ROS or MQTT |
+
+**How many temperature sensors?** Two sensors *detect* a fault (they disagree), but cannot tell
+which one is wrong; the supervisor then uses their mean and raises an alarm. Three sensors
+*isolate* it by median voting (2-out-of-3). With two sensors, the AI monitor isolates frozen and
+drifting sensors. See [analysis 06](../analysis/output/06_fault_detection.md) for measured
+delays and errors per fault type.
 
 **Actuator mapping.** Each controller output is a 0–1 command. The original project drove
 8-bit PWM (0–255); `ActuatorCommand.as_pwm()` gives the same mapping. For relays and staged

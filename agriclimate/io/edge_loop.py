@@ -21,6 +21,7 @@ log = logging.getLogger("agriclimate.edge")
 
 
 def main(argv=None) -> None:
+    """Run the real-time loop until Ctrl+C."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plc", required=True, help="PLC / remote-I/O IP address")
     ap.add_argument("--port", type=int, default=502)

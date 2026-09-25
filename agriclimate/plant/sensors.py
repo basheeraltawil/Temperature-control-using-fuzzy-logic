@@ -9,17 +9,20 @@ import numpy as np
 
 @dataclass
 class SensorFault:
+    """Fault active between start_h and end_h (hours from the start of the run)."""
     kind: str            # "stuck" | "drift" | "offset" | "spike" | "dropout" | "noise"
     start_h: float
     end_h: float = float("inf")
     value: float = 0.0   # drift: degC/h, offset: degC, spike: amplitude, noise: extra std
 
     def active(self, t_h: float) -> bool:
+        """True if the fault is active at t_h."""
         return self.start_h <= t_h < self.end_h
 
 
 @dataclass
 class Sensor:
+    """First-order lag + bias + noise + quantisation, with optional faults."""
     name: str = "T1"
     noise_std: float = 0.05
     bias: float = 0.0
@@ -34,6 +37,7 @@ class Sensor:
         self._stuck_value: Optional[float] = None
 
     def read(self, true_value: float, t_s: float, dt: float) -> float:
+        """Measured value for the true value at time t_s (NaN during a dropout)."""
         if self._filtered is None:
             self._filtered = true_value
         self._filtered += (true_value - self._filtered) * min(1.0, dt / max(self.tau_s, 1e-6))

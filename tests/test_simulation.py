@@ -24,3 +24,13 @@ def test_energy_balance_heater_only_warms():
     r = run_scenario(sc, "fuzzy_pi")
     assert r.metrics["heating_kwh"] > 0
     assert abs(r.log["t_true"].iloc[-1] - r.log["setpoint"].iloc[-1]) < 1.0
+
+
+def test_periodic_internal_gain_follows_photoperiod():
+    from agriclimate.sim.runner import disturbances_at
+
+    sc = Scenario.load("vertical_farm_lettuce")
+    assert disturbances_at(sc, 5.0)[1] == 0          # lights off before 06:00
+    assert disturbances_at(sc, 12.0)[1] == 30000     # lights on
+    assert disturbances_at(sc, 23.0)[1] == 0         # off after 22:00
+    assert disturbances_at(sc, 36.0)[1] == 30000     # next day

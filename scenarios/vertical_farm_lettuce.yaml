@@ -1,0 +1,26 @@
+name: vertical_farm_lettuce
+description: Indoor vertical farm, lettuce, 16 h LED photoperiod switching 30 kW of heat on and off
+agronomy: >
+  Lettuce grows best at about 20-22 degC with lights on and 16-18 degC with
+  lights off; above 24-25 degC it bolts and tip-burns.  In an insulated
+  indoor farm the LEDs are the dominant heat source, so the controller must
+  remove ~30 kW of heat within minutes when the lights switch on, and stop
+  cooling when they switch off.  Energy for cooling is a major operating cost.
+facility: vertical_farm
+duration_h: 72
+control_dt_s: 20
+initial: {t_air: 18.0, rh: 70}
+weather: {type: synthetic, t_mean: 12, t_amplitude: 6, rh_mean: 70, solar_peak: 0, seed: 23}
+setpoint: {type: day_night, day: 21, night: 17, day_start_h: 6, day_end_h: 22, ramp_h: 0.5}
+comfort_band: 1.0
+crop_limits: {min: 12, max: 25}
+allocator: {vent_stage: 0.0, min_vent: 0.1}
+supervisor: {t_low_limit: 8, t_high_limit: 30, compressor_min_on_s: 120, compressor_min_off_s: 180,
+             max_slew_per_s: 0.05}
+sensors: {count: 2, noise_std: 0.05, tau_s: 30}
+disturbances:
+  - {kind: internal_gain, start_h: 6, watts: 30000, period_h: 24, on_h: 16}   # LEDs 06:00-22:00
+controllers: [fuzzy_pi, pid, mpc]
+controller_params:            # found with: agriclimate tune vertical_farm_lettuce --controller ...
+  fuzzy_pi: {ke: 0.224, kr: 68.3, ku: 0.00316}
+  pid: {kp: 0.219, ti: 299.0, td: 1.77}

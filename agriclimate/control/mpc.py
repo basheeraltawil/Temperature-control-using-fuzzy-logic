@@ -7,6 +7,15 @@ instead of the boiler).  Offset-free tracking uses an output-disturbance
 estimate.  It is a supervisory layer: its output still goes through the
 split-range allocator and the safety supervisor, and a fuzzy-PI fallback
 (kept warm for bumpless transfer) takes over when the optimiser fails.
+
+Optimisation problem, solved with L-BFGS-B over the blocked demands z:
+
+    min_z  sum_k [ w_track * max(|T_k - r_k| - band, 0)^2
+                 + w_heat * heater_k + w_cool * (cooler_k + 0.3 vent_k) ]
+         + w_move * sum_j (z_j - z_{j-1})^2,        -1 <= z_j <= 1
+
+T_k comes from the learned model (see agriclimate.ai.sysid), r_k from the
+recipe preview, and heater/cooler/vent from the split-range allocator.
 """
 from __future__ import annotations
 
@@ -15,7 +24,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import minimize
 
-from ..ai.sysid import ModelState, _wet_bulb
+from ..ai.sysid import ModelState, wet_bulb
 from .allocator import SplitRangeAllocator
 from .base import ControlContext, Controller
 from .fuzzy_pi import FuzzyPIController
@@ -23,6 +32,7 @@ from .fuzzy_pi import FuzzyPIController
 
 @dataclass
 class MPCController(Controller):
+    """Receding-horizon controller; see the module docstring for the cost function."""
     model: object = None                      # agriclimate.ai.sysid.LearnedThermalModel
     allocator: SplitRangeAllocator = field(default_factory=SplitRangeAllocator)
     horizon_s: float = 3600.0
@@ -44,6 +54,8 @@ class MPCController(Controller):
         self._pred_alloc = SplitRangeAllocator(**{**self.allocator.__dict__, "deadband": 0.0})
         if getattr(self.model, "_mlp", None) is not None:
             raise NotImplementedError("MPC fast path supports the linear grey-box model only")
+        # unscaled model coefficients, order = sysid.FEATURES:
+        # [dT_env, heater_f, cooler_f, evap, vent_x, solar, dT_prev, bias]
         self._w = [float(c / s) for c, s in zip(self.model.coef, self.model.scale)]
         dt = self.model.dt
         self._ah = dt / (self.model.tau_heater + dt) if self.model.tau_heater > 0 else 1.0
@@ -52,6 +64,7 @@ class MPCController(Controller):
         self.reset()
 
     def reset(self, demand: float = 0.0) -> None:
+        """Restart the optimiser and the fallback from a given demand."""
         self._state_cls = ModelState
         self._z = np.full(self.blocks, float(demand))
         self._next_solve = 0.0
@@ -64,7 +77,7 @@ class MPCController(Controller):
 
     def _rollout(self, z, st0, weather, sps, rh):
         """Predicted cost of a blocked demand sequence (inlined linear model for speed)."""
-        m, alloc = self.model, self._pred_alloc
+        alloc = self._pred_alloc
         w = self._w
         ah, ac = self._ah, self._ac
         per = -(-self.steps // self.blocks)
@@ -99,6 +112,8 @@ class MPCController(Controller):
         self._state = self._state_cls(T, self._state.T, pred.hf, pred.cf)
 
     def update(self, ctx: ControlContext) -> float:
+        """Track the model state every model.dt, re-optimise every solve_period_s,
+        hold the first planned demand in between."""
         fb = self.fallback.update(ctx)         # keep the fallback warm (bumpless switch)
         dt = self.model.dt
         if self._last_T is None or ctx.t_s - self._last_T >= dt - 1e-9:
@@ -116,7 +131,7 @@ class MPCController(Controller):
                 t_out, rh_out, solar = s.t_out, s.rh_out, s.solar
             else:
                 t_out, rh_out, solar = ctx.t_out, 60.0, ctx.solar
-            t_sup = t_out - 0.8 * (t_out - _wet_bulb(t_out, rh_out))
+            t_sup = t_out - 0.8 * (t_out - wet_bulb(t_out, rh_out))
             weather.append((t_out, t_sup, solar / 1000.0))
         preview = ctx.setpoint_preview or (lambda t: ctx.setpoint)
         sps = [preview(ctx.t_s + (k + 1) * dt) for k in range(self.steps)]

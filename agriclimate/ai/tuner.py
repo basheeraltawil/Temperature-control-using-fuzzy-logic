@@ -24,6 +24,7 @@ SPACES = {
 
 @dataclass
 class TuningObjective:
+    """Cost of one parameter vector (log10 gains), averaged over the scenarios."""
     scenarios: Sequence            # list of Scenario
     controller: str = "fuzzy_pi"
     w_travel: float = 0.02         # per unit actuator travel per hour
@@ -31,6 +32,7 @@ class TuningObjective:
     energy_ref: Sequence[float] = ()
 
     def params(self, x) -> Dict[str, float]:
+        """Convert the log10 search vector into controller keyword arguments."""
         return {k: float(10 ** v) for k, v in zip(SPACES[self.controller], x)}
 
     def __call__(self, x) -> float:
@@ -51,6 +53,7 @@ class TuningObjective:
 
 def tune(scenarios: List, controller: str = "fuzzy_pi", maxiter: int = 12, popsize: int = 8,
          workers: int = -1, seed: int = 0) -> Dict:
+    """Differential evolution over SPACES[controller]; returns the best gains and their cost."""
     from ..sim.runner import run_scenario
 
     ref = [run_scenario(sc, "pid").metrics["total_kwh"] for sc in scenarios]

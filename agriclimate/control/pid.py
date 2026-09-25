@@ -11,6 +11,7 @@ from .base import ControlContext, Controller
 
 @dataclass
 class PIDController(Controller):
+    """u = Kp(beta r - y) + (Kp/Ti) int e dt - Kp Td dy_f/dt, with back-calculation anti-windup."""
     kp: float = 0.35          # 1/K
     ti: float = 770.0         # s
     td: float = 0.0           # s (tuning found no benefit from D)
@@ -23,11 +24,13 @@ class PIDController(Controller):
         self.reset()
 
     def reset(self, demand: float = 0.0) -> None:
+        """Restart with the integrator set to the given demand (bumpless transfer)."""
         self._i = demand
         self._d = 0.0
         self._y_prev = None
 
     def update(self, ctx: ControlContext) -> float:
+        """One discrete PID step; returns the demand clipped to [-1, 1]."""
         y, r, dt = ctx.temperature, ctx.setpoint, ctx.dt
         if self._y_prev is None:
             self._y_prev = y

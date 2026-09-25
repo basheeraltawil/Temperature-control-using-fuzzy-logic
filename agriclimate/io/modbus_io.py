@@ -27,6 +27,7 @@ from ..plant.facility import ActuatorCommand
 
 @dataclass
 class RegisterMap:
+    """Where the registers start and how many temperature sensors there are."""
     n_temperature: int = 2
     input_base: int = 0
     holding_base: int = 0
@@ -38,6 +39,7 @@ def _signed(v: int) -> int:
 
 
 class ModbusClimateIO:
+    """Reads sensors from and writes commands + heartbeat to the PLC."""
     def __init__(self, host: str, port: int = 502, regmap: RegisterMap = RegisterMap(), timeout: float = 1.0):
         try:
             from pymodbus.client import ModbusTcpClient
@@ -57,6 +59,7 @@ class ModbusClimateIO:
         self.client.close()
 
     def read(self) -> Dict[str, object]:
+        """Read temperatures (degC), RH (%), outdoor temperature (degC) and radiation (W/m2)."""
         m = self.map
         count = m.n_temperature + 3
         rr = self.client.read_input_registers(m.input_base, count=count, **{self._unit_kw: m.unit})
@@ -68,6 +71,7 @@ class ModbusClimateIO:
                 "t_out": _signed(regs[m.n_temperature + 1]) / 100.0, "solar": float(regs[m.n_temperature + 2])}
 
     def write(self, cmd: ActuatorCommand, remote: bool = True) -> None:
+        """Write heater/cooler/vent (0..10000), the heartbeat counter and the remote flag."""
         c = cmd.clipped()
         self._heartbeat = (self._heartbeat + 1) % 0x10000
         values = [round(c.heater * 10000), round(c.cooler * 10000), round(c.vent * 10000),

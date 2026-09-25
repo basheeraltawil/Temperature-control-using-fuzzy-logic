@@ -17,6 +17,7 @@ from .membership import evaluate_mf
 
 @dataclass
 class MembershipFunction:
+    """Named membership function, e.g. ('ZE', 'trimf', [-1, 0, 1])."""
     name: str
     type: str
     params: List[float]
@@ -27,6 +28,7 @@ class MembershipFunction:
 
 @dataclass
 class Variable:
+    """Linguistic variable: name, universe of discourse and its membership functions."""
     name: str
     range: Sequence[float]
     mfs: List[MembershipFunction] = field(default_factory=list)
@@ -41,6 +43,7 @@ class Variable:
 
 @dataclass
 class Rule:
+    """IF-THEN rule in MATLAB index form."""
     antecedent: List[int]   # 1-based MF index per input, 0 = don't care, negative = NOT
     consequent: List[int]   # 1-based MF index per output, 0 = rule does not drive that output
     weight: float = 1.0
@@ -49,12 +52,14 @@ class Rule:
 
 @dataclass
 class InferenceResult:
+    """Crisp outputs, rule firing strengths and whether any rule fired."""
     outputs: np.ndarray
     firing: np.ndarray       # firing strength of every rule
     fired: bool              # False when no rule fired for at least one output
 
 
 class MamdaniFIS:
+    """Mamdani fuzzy inference system (fuzzify -> rule strengths -> implication -> aggregation -> defuzzify)."""
     def __init__(
         self,
         name: str,
@@ -111,6 +116,7 @@ class MamdaniFIS:
         return degrees
 
     def firing_strengths(self, x: Sequence[float]) -> np.ndarray:
+        """Degree of fulfilment of every rule for the crisp inputs x."""
         degrees = self._fuzzify(x)
         n_rules, n_in = self._ante.shape
         mu = np.empty((n_rules, n_in))

@@ -15,6 +15,7 @@ import numpy as np
 
 @dataclass
 class WeatherSample:
+    """Outdoor conditions at one instant."""
     t_out: float        # degC
     rh_out: float       # %
     solar: float        # W/m2 global horizontal irradiance
@@ -23,6 +24,7 @@ class WeatherSample:
 
 @dataclass
 class WeatherEvent:
+    """Temporary change (cold front, heat wave, cloud, wind) with linear ramps."""
     kind: str           # "temperature_offset" | "cloud" | "wind"
     start_h: float
     end_h: float
@@ -30,6 +32,7 @@ class WeatherEvent:
     ramp_h: float = 1.0
 
     def weight(self, t_h: float) -> float:
+        """0..1 activation of the event at t_h, including the ramps."""
         if t_h < self.start_h or t_h > self.end_h:
             return 0.0
         up = min(1.0, (t_h - self.start_h) / max(self.ramp_h, 1e-6))
@@ -39,6 +42,7 @@ class WeatherEvent:
 
 @dataclass
 class SyntheticWeather:
+    """Seeded diurnal weather with random cloud cover and optional events."""
     t_mean: float = 15.0
     t_amplitude: float = 6.0          # half of the daily swing
     t_min_hour: float = 5.0
@@ -67,6 +71,7 @@ class SyntheticWeather:
         return int(t_s // 300) % self._cloud.size
 
     def sample(self, t_s: float) -> WeatherSample:
+        """Weather at time t_s (s from the start)."""
         t_h = t_s / 3600.0
         hod = t_h % 24.0
         i = self._idx(t_s)
@@ -118,9 +123,11 @@ class CsvWeather:
         self._wind = df["wind"].to_numpy(float) if "wind" in df else np.full(len(df), 2.0)
 
     def sample(self, t_s: float) -> WeatherSample:
+        """Weather at time t_s (s from the start)."""
         g = lambda arr: float(np.interp(t_s, self._t, arr))  # noqa: E731
         return WeatherSample(g(self._cols["t_out"]), g(self._cols["rh_out"]),
                              g(self._cols["solar"]), g(self._wind))
 
     def forecast(self, t_s, horizon_s, step_s, error_std=0.0, rng=None):
+        """Future samples over horizon_s every step_s."""
         return [self.sample(t_s + (k + 1) * step_s) for k in range(int(horizon_s // step_s))]

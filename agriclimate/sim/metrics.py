@@ -8,6 +8,7 @@ import pandas as pd
 
 
 def compute_metrics(log: pd.DataFrame, scenario, alarms: List = ()) -> Dict[str, float]:
+    """KPIs of one run (true air temperature, energy, wear, alarms); formulas in docs/THEORY.md."""
     dt_h = scenario.control_dt_s / 3600.0
     # KPIs use the TRUE air temperature: that is what the crop / animals experience,
     # regardless of what a faulty sensor reports.
@@ -34,5 +35,6 @@ def compute_metrics(log: pd.DataFrame, scenario, alarms: List = ()) -> Dict[str,
 
 
 def metrics_table(results) -> pd.DataFrame:
+    """KPIs of several runs as a DataFrame."""
     rows = [{"scenario": r.scenario, "controller": r.controller, **r.metrics} for r in results]
     return pd.DataFrame(rows)

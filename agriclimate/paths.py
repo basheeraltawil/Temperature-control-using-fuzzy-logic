@@ -10,6 +10,7 @@ _REPO = Path(__file__).resolve().parents[1]
 
 
 def candidates(sub: str) -> List[Path]:
+    """Directories searched for a data folder, in priority order."""
     dirs = []
     if os.environ.get("AGRICLIMATE_HOME"):
         dirs.append(Path(os.environ["AGRICLIMATE_HOME"]) / sub)
@@ -18,6 +19,7 @@ def candidates(sub: str) -> List[Path]:
 
 
 def find_file(sub: str, name: str) -> Path:
+    """First existing file ``sub/name`` in the candidate directories."""
     for d in candidates(sub):
         if (d / name).exists():
             return d / name
@@ -26,6 +28,7 @@ def find_file(sub: str, name: str) -> Path:
 
 
 def first_dir(sub: str) -> Path:
+    """First existing ``sub`` directory."""
     for d in candidates(sub):
         if d.is_dir():
             return d

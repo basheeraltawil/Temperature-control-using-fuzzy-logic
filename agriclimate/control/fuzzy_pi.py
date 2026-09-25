@@ -14,7 +14,7 @@ PLC / MCU code does (see ``agriclimate.fuzzy.codegen``).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -25,6 +25,7 @@ from .base import ControlContext, Controller
 
 @dataclass
 class FuzzyPIController(Controller):
+    """Incremental fuzzy-PI; gains ke (1/K), kr (s/K), ku (1/s)."""
     ke: float = 0.3           # 1/K    : |error| >= 3.3 K saturates the error input
     kr: float = 200.0         # s/K    : error-rate scaling
     ku: float = 0.0015        # 1/s    : output increment scaling
@@ -41,16 +42,19 @@ class FuzzyPIController(Controller):
         self.reset()
 
     def reset(self, demand: float = 0.0) -> None:
+        """Restart from a given demand (bumpless transfer)."""
         self.u = float(demand)
         self._e_prev = None
         self._de_f = 0.0
 
     def surface(self, e: float, de: float) -> float:
+        """Normalised output increment du for normalised error e and error rate de."""
         if self.use_lut:
             return interp_lut(*self.lut, e, de)
         return float(self.fis(e, de)[0])
 
     def update(self, ctx: ControlContext) -> float:
+        """One control step: filter the error rate, evaluate the rule base, integrate."""
         err = ctx.setpoint - ctx.temperature
         if self._e_prev is None:
             self._e_prev = err

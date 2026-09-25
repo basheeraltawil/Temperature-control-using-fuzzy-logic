@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Callable, Optional
+from typing import Optional
 
 
 class MqttBridge:
+    """Publishes telemetry and alarms; accepts range-checked remote setpoints."""
     def __init__(self, host: str, base_topic: str, port: int = 1883, username: Optional[str] = None,
                  password: Optional[str] = None, tls: bool = False, setpoint_limits=(0.0, 40.0)):
         try:
@@ -53,6 +54,7 @@ class MqttBridge:
 
     @property
     def remote_setpoint(self) -> Optional[float]:
+        """Last valid remote setpoint, or None."""
         with self._lock:
             return self._setpoint
 

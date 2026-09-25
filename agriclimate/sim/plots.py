@@ -14,6 +14,7 @@ COLORS = {"fuzzy_pi": "#1b7837", "fuzzy_pi+ai": "#5aae61", "pid": "#2166ac", "mp
 
 
 def plot_comparison(results: List, scenario, path) -> Path:
+    """Four-panel figure: temperatures, actuators, humidity/solar, cumulative energy."""
     fig, ax = plt.subplots(4, 1, figsize=(12, 11), sharex=True,
                            gridspec_kw={"height_ratios": [3, 1.4, 1.4, 1.2]})
     first = results[0].log
@@ -63,6 +64,7 @@ def plot_comparison(results: List, scenario, path) -> Path:
 
 
 def plot_fis_surfaces(legacy_fis, new_fis, path) -> Path:
+    """3-D control surfaces of the legacy FIS outputs and the fuzzy-PI."""
     fig = plt.figure(figsize=(14, 4.5))
     for i, (fis, out, title) in enumerate([(legacy_fis, 0, "legacy P-PWM (heater)"),
                                            (legacy_fis, 1, "legacy N-PWM (cooler)"),

@@ -8,8 +8,8 @@ and an *independent hard-wired* high-limit thermostat is still mandatory.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -18,6 +18,7 @@ from ..plant.facility import ActuatorCommand
 
 @dataclass
 class Alarm:
+    """One alarm event (raised once until the condition clears)."""
     t_s: float
     level: str        # "INFO" | "WARN" | "ALARM"
     code: str
@@ -30,6 +31,7 @@ class Alarm:
 
 @dataclass
 class SupervisorConfig:
+    """Limits and timings of the safety supervisor (values per scenario YAML)."""
     sensor_min: float = -40.0
     sensor_max: float = 70.0
     max_rate_c_per_s: float = 0.05       # physically implausible faster changes
@@ -48,6 +50,7 @@ class SupervisorConfig:
 
 @dataclass
 class SupervisorOutput:
+    """Safe actuator command plus the supervisor's view of the process."""
     command: ActuatorCommand
     temperature: float                   # validated / fused temperature (nan if none)
     quality: str                         # "GOOD" | "DEGRADED" | "BAD"
@@ -56,6 +59,7 @@ class SupervisorOutput:
 
 
 class SafetySupervisor:
+    """Deterministic safety layer between every controller and the actuators."""
     def __init__(self, config: Optional[SupervisorConfig] = None):
         self.cfg = config or SupervisorConfig()
         self._last_valid: Optional[float] = None
@@ -68,7 +72,8 @@ class SafetySupervisor:
 
     # --------------------------------------------------------------- sensors
     def validate(self, readings: Sequence[float], t_s: float, dt: float,
-                 excluded: Sequence[int] = ()) -> (float, str, List[Alarm]):
+                 excluded: Sequence[int] = ()) -> Tuple[float, str, List[Alarm]]:
+        """Check each reading, fuse the valid ones and return (temperature, quality, new alarms)."""
         c, alarms = self.cfg, []
         valid = []
         if len(self._prev_readings) != len(readings):
@@ -91,15 +96,28 @@ class SafetySupervisor:
                     self._clear(f"SENSOR{i + 1}_{suffix}")
             else:
                 alarms += self._raise(t_s, "WARN", f"SENSOR{i + 1}_INVALID", f"sensor {i + 1} invalid ({r})")
-        if len(valid) >= 2:
+        if len(valid) >= 3:
+            # 2-out-of-3 voting: the median ignores one faulty sensor
+            value = float(np.median(valid))
+            spread = max(valid) - min(valid)
+            if spread > c.disagreement_tol:
+                alarms += self._raise(t_s, "WARN", "SENSOR_DISAGREE",
+                                      f"redundant sensors disagree by {spread:.1f} K (median used)")
+                quality = "DEGRADED"
+            else:
+                self._clear("SENSOR_DISAGREE")
+                quality = "GOOD"
+        elif len(valid) == 2:
             spread = max(valid) - min(valid)
             if spread > c.disagreement_tol or ("SENSOR_DISAGREE" in self._active
                                                 and spread > 0.5 * c.disagreement_tol):
                 alarms += self._raise(t_s, "WARN", "SENSOR_DISAGREE",
                                       f"redundant sensors disagree by {spread:.1f} K")
-                # keep the reading closest to the last trusted value
-                ref = self._last_valid if self._last_valid is not None else float(np.median(valid))
-                value, quality = min(valid, key=lambda v: abs(v - ref)), "DEGRADED"
+                # Two sensors cannot tell which one is wrong. Following one of them
+                # can lock in a frozen or drifting sensor (the controller holds the
+                # followed sensor at setpoint), so use the mean - the error is halved -
+                # and rely on the AI monitor or a third sensor to isolate the fault.
+                value, quality = float(np.mean(valid)), "DEGRADED"
             else:
                 self._clear("SENSOR_DISAGREE")
                 value, quality = float(np.mean(valid)), "GOOD"
@@ -117,6 +135,7 @@ class SafetySupervisor:
     # -------------------------------------------------------------- actuators
     def apply(self, requested: ActuatorCommand, temperature: float, quality: str, t_s: float,
               dt: float, t_out: float = 10.0) -> SupervisorOutput:
+        """Apply fail-safe, limits, interlock, slew limit and anti-short-cycle to a requested command."""
         c, alarms = self.cfg, []
         cmd = requested.clipped()
         mode = "AUTO"

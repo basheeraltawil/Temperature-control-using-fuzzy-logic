@@ -22,6 +22,7 @@ def vapor_density(t_c, rh_pct):
 
 
 def relative_humidity(t_c, rho_v):
+    """Relative humidity (%) from temperature and vapour density."""
     e = np.asarray(rho_v) * R_V * (np.asarray(t_c) + 273.15)
     return np.clip(100.0 * e / (saturation_vapor_pressure(t_c) * 1000.0), 0.0, 100.0)
 

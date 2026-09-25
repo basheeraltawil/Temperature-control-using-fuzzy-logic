@@ -51,10 +51,21 @@ PRESETS = {
         heater_max_w=20e3, heater_efficiency=1.0, heater_tau_s=60, cooler_type="refrigeration",
         cooler_max_w=25e3, cooler_cop=3.0, vent_rate_per_s=1 / 20, internal_gain_w=4e3,
         internal_moisture_kg_s=3e-4),
+    # 100 m2 insulated indoor (vertical) farm, 3 growing tiers under LEDs.
+    # LED heat (~30 kW while lights are on) is added in the scenario as a
+    # periodic internal gain; the room is cooling-dominated.
+    "vertical_farm": FacilityParams(
+        name="vertical_farm", floor_area=100, volume=400, envelope_area=500, u_value=0.3,
+        solar_transmittance=0.0, crop_factor=0.0, air_capacity_factor=3.0, mass_capacity=60e3,
+        h_ground=0.5, leakage_ach=0.2, vent_max_ach=3, natural_ventilation=False,
+        vent_fan_power_w=400, heater_max_w=10e3, heater_efficiency=1.0, heater_tau_s=30,
+        cooler_type="refrigeration", cooler_max_w=45e3, cooler_cop=3.5, cooler_tau_s=60,
+        vent_rate_per_s=1 / 10, internal_gain_w=1.5e3, internal_moisture_kg_s=3e-3),
 }
 
 
 def get_preset(name: str) -> FacilityParams:
+    """Copy of a named preset from PRESETS."""
     try:
         return FacilityParams.from_dict(PRESETS[name].to_dict())   # defensive copy
     except KeyError as exc:

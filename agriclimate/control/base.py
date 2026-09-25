@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List, Optional, Union
 
 from ..plant.facility import ActuatorCommand
@@ -11,6 +11,7 @@ from ..plant.weather import WeatherSample
 
 @dataclass
 class ControlContext:
+    """Everything a controller may use in one control cycle."""
     t_s: float                      # time since start, s
     dt: float                       # control period, s
     temperature: float              # validated air temperature, degC
@@ -32,6 +33,7 @@ class Controller(ABC):
 
     @abstractmethod
     def update(self, ctx: ControlContext) -> Union[float, ActuatorCommand]:
+        """Compute one control action for the given context."""
         ...
 
     def reset(self, demand: float = 0.0) -> None:

@@ -35,6 +35,7 @@ def _parse_rule(line: str, n_in: int, n_out: int) -> Rule:
 
 
 def load_fis(path: Union[str, Path], resolution: int = 501) -> MamdaniFIS:
+    """Read a MATLAB .fis file into a MamdaniFIS."""
     sections: Dict[str, Dict[str, object]] = {}
     rules_raw: List[str] = []
     current = None
@@ -64,6 +65,7 @@ def load_fis(path: Union[str, Path], resolution: int = 501) -> MamdaniFIS:
         raise ValueError("Only Mamdani FIS files are supported")
 
     def variables(prefix: str, count: int) -> List[Variable]:
+        """Build the Input1..N or Output1..N variables."""
         out = []
         for i in range(1, count + 1):
             s = sections[f"{prefix}{i}"]
@@ -86,6 +88,7 @@ def _fmt(v: float) -> str:
 
 
 def save_fis(fis: MamdaniFIS, path: Union[str, Path]) -> None:
+    """Write a MamdaniFIS as a MATLAB .fis file."""
     lines = [
         "[System]", f"Name='{fis.name}'", "Type='mamdani'", "Version=2.0",
         f"NumInputs={len(fis.inputs)}", f"NumOutputs={len(fis.outputs)}", f"NumRules={len(fis.rules)}",

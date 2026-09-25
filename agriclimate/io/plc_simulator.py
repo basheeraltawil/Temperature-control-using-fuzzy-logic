@@ -49,6 +49,7 @@ def _datastore(n_input: int, n_holding: int):
 
 
 class VirtualPLC:
+    """Digital twin behind a Modbus TCP server, with heartbeat watchdog and local fuzzy-PI."""
     def __init__(self, scenario: Scenario, n_sensors: int = 2, period: float = 1.0, time_scale: float = 1.0,
                  watchdog_s: float = 5.0):
         self.sc = scenario
@@ -111,6 +112,7 @@ class VirtualPLC:
 
 
 def main(argv=None) -> None:
+    """Start the virtual PLC server."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=5020)

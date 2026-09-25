@@ -11,7 +11,7 @@ from std_msgs.msg import Float64
 
 from agriclimate.plant.facility import ActuatorCommand, Facility
 from agriclimate.plant.sensors import Sensor
-from agriclimate.sim.runner import _apply_actuator_faults, _disturbance
+from agriclimate.sim.runner import apply_actuator_faults, disturbances_at
 from agriclimate.sim.scenario import Scenario
 
 from . import common as c
@@ -58,8 +58,8 @@ class PlantSim(Node):
     def _tick(self):
         p, t = self.sc, self.t
         w = self.weather.sample(t)
-        _apply_actuator_faults(p, self.plant, t / 3600.0)
-        ach, gain = _disturbance(p, t / 3600.0)
+        apply_actuator_faults(p, self.plant, t / 3600.0)
+        ach, gain = disturbances_at(p, t / 3600.0)
         self.plant.step(self.dt, self.cmd, w, ach, gain)
         self.t += self.dt
 

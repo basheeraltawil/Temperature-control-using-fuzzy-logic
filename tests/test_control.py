@@ -72,3 +72,13 @@ def test_schedules():
     assert dn(3 * 3600) == 16 and dn(12 * 3600) == 22 and dn(7 * 3600) == pytest.approx(19)
     b = BroodingSchedule(start=32, final=21, drop_per_day=0.5)
     assert b(0) == 32 and b(10 * 86400) == 27 and b(60 * 86400) == 21
+
+
+def test_three_sensors_use_median_and_two_disagreeing_use_mean():
+    s = SafetySupervisor(SupervisorConfig())
+    v, q, _ = s.validate([20.0, 20.1, 25.0], 0.0, 10.0)      # one faulty of three
+    assert v == pytest.approx(20.1) and q == "DEGRADED"
+    s2 = SafetySupervisor(SupervisorConfig())
+    v, q, al = s2.validate([20.0, 23.0], 0.0, 10.0)           # two disagreeing
+    assert v == pytest.approx(21.5) and q == "DEGRADED"
+    assert any(a.code == "SENSOR_DISAGREE" for a in al)

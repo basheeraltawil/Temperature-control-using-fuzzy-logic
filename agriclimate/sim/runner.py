@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -25,6 +25,7 @@ _MODEL_CACHE: Dict[str, object] = {}
 
 @dataclass
 class RunResult:
+    """Log, alarms and KPIs of one simulation run."""
     scenario: str
     controller: str
     log: pd.DataFrame
@@ -54,7 +55,7 @@ def build_detector(scenario: Scenario, seed: int = 0):
     return AnomalyDetector(model=identify_model(scenario)).fit(healthy)
 
 
-def make_controller(name: str, scenario: Scenario) -> (Controller, bool):
+def make_controller(name: str, scenario: Scenario) -> Tuple[Controller, bool]:
     """Returns (controller, supervised). A '+ai' suffix enables anomaly detection in the runner."""
     base = name.replace("+ai", "")
     params = scenario.controller_params.get(base, {})
@@ -71,23 +72,39 @@ def make_controller(name: str, scenario: Scenario) -> (Controller, bool):
     raise ValueError(f"Unknown controller '{name}' (fuzzy_pi, pid, legacy_fis, mpc, optional '+ai')")
 
 
-def _disturbance(scenario: Scenario, t_h: float):
+def _periodic_on(t_h: float, start_h: float, period_h: float, on_h: float) -> bool:
+    """True during the first on_h hours of every period_h, starting at start_h."""
+    return t_h >= start_h and (t_h - start_h) % period_h < on_h
+
+
+def disturbances_at(scenario: Scenario, t_h: float) -> Tuple[float, float]:
+    """Extra air changes per hour and extra internal heat (W) at time t_h.
+
+    Supported ``disturbances`` entries:
+      door           {start_h, period_h, duration_min, ach}   repeated door openings
+      infiltration   {start_h, end_h, ach}                    e.g. broken vent, open door
+      internal_gain  {start_h, end_h, watts[, period_h, on_h]} animals, lamps, compost;
+                     with period_h/on_h it repeats, e.g. 16 h LED photoperiod every 24 h
+    """
     extra_ach, extra_gain = 0.0, 0.0
     for d in scenario.disturbances:
-        kind = d["kind"]
+        kind, start = d["kind"], d.get("start_h", 0.0)
         if kind == "door":
-            start = d.get("start_h", 0.0)
-            if t_h >= start and ((t_h - start) % d["period_h"]) * 60.0 < d["duration_min"]:
+            if _periodic_on(t_h, start, d["period_h"], d["duration_min"] / 60.0):
                 extra_ach += d["ach"]
-        elif d.get("start_h", 0.0) <= t_h < d.get("end_h", math.inf):
-            if kind == "infiltration":
-                extra_ach += d["ach"]
-            elif kind == "internal_gain":
+            continue
+        if not start <= t_h < d.get("end_h", math.inf):
+            continue
+        if kind == "infiltration":
+            extra_ach += d["ach"]
+        elif kind == "internal_gain":
+            if "period_h" not in d or _periodic_on(t_h, start, d["period_h"], d["on_h"]):
                 extra_gain += d["watts"]
     return extra_ach, extra_gain
 
 
-def _apply_actuator_faults(scenario: Scenario, plant: Facility, t_h: float) -> None:
+def apply_actuator_faults(scenario: Scenario, plant: Facility, t_h: float) -> None:
+    """Set the actuator health of the plant for time t_h from ``faults: actuators:``."""
     h = plant.health
     h.heater_capacity, h.cooler_capacity, h.vent_stuck_at = 1.0, 1.0, None
     for f in scenario.faults.get("actuators", []):
@@ -102,6 +119,13 @@ def _apply_actuator_faults(scenario: Scenario, plant: Facility, t_h: float) -> N
 
 def run_scenario(scenario: Scenario, controller: Union[str, Controller] = "fuzzy_pi", seed: int = 0,
                  anomaly_detection: Optional[bool] = None, supervised: Optional[bool] = None) -> RunResult:
+    """Simulate one scenario with one controller and return the log, alarms and KPIs.
+
+    ``controller`` is a name ("fuzzy_pi", "pid", "mpc", "legacy_fis", optionally
+    with "+ai" for the anomaly monitor) or a Controller instance. Each control
+    period: read weather and sensors, run one ClimateRuntime cycle, log, then
+    advance the plant by control_dt_s.
+    """
     if isinstance(controller, str):
         ctrl_name = controller
         ctrl, default_sup = make_controller(controller, scenario)
@@ -129,8 +153,8 @@ def run_scenario(scenario: Scenario, controller: Union[str, Controller] = "fuzzy
         t = k * dt
         t_h = t / 3600.0
         w = weather.sample(t)
-        _apply_actuator_faults(scenario, plant, t_h)
-        extra_ach, extra_gain = _disturbance(scenario, t_h)
+        apply_actuator_faults(scenario, plant, t_h)
+        extra_ach, extra_gain = disturbances_at(scenario, t_h)
         sp = scenario.setpoint(t)
         readings = [s.read(plant.state.t_air, t, dt) for s in sensors]
         forecast = weather.forecast(t, 3 * 3600, 300, fc_err, rng) if needs_forecast else None
@@ -156,4 +180,5 @@ def run_scenario(scenario: Scenario, controller: Union[str, Controller] = "fuzzy
 
 
 def compare_controllers(scenario: Scenario, controllers: Optional[List[str]] = None, seed: int = 0):
+    """Run the same scenario for several controllers (default: those listed in the scenario)."""
     return [run_scenario(scenario, c, seed=seed) for c in (controllers or scenario.controllers)]

@@ -58,6 +58,11 @@ flowchart TB
 Level 0 works independently of all software: it cuts heating or forces protection even if the PLC
 and edge computer fail.
 
+**Documentation**: [scenarios](docs/SCENARIOS.md) · [theory and equations](docs/THEORY.md) ·
+[design calculations](docs/DESIGN_CALCULATIONS.md) · [code architecture](docs/ARCHITECTURE.md) ·
+[implementation guide](docs/IMPLEMENTATION_GUIDE.md) · [engineering analyses](analysis/README.md) ·
+[reading paths for students, researchers and engineers](docs/README.md)
+
 ---
 
 ## 1. How it works
@@ -154,46 +159,50 @@ The limit modes stay latched until the temperature has recovered by `limit_hyste
 (1 K by default). `FAILSAFE` starts when no sensor has been valid for longer than
 `stale_timeout_s`. On return, the controller restarts bumplessly from its last demand.
 
-## 2. Results (digital twin, 8 agricultural scenarios)
+## 2. Results (digital twin, 10 agricultural scenarios)
 
 `agriclimate benchmark --plots` produces [docs/results/benchmark.md](docs/results/benchmark.md).
-KPIs use the **true** air temperature, which is what the crop or animals experience. Selected rows:
+KPIs use the **true** air temperature, which is what the crop or animals experience. The numbers
+come from the digital twin, not from a real site. Selected rows:
 
 | Scenario | Controller | RMSE [K] | in band [%] | max err [K] | crop-stress [h] | energy [kWh] | actuator travel | heat+cool overlap [h] |
 |---|---|---|---|---|---|---|---|---|
 | tomato greenhouse (72 h) | legacy FIS | 5.27 | 19.4 | 9.91 | 17.0 | 4331 | 7 | 72.0 |
-| | **fuzzy-PI** | 0.29 | 98.3 | 2.20 | 0 | 4148 | 121 | 0 |
+| | fuzzy-PI | 0.29 | 98.3 | 2.20 | 0 | 4148 | 121 | 0 |
 | | PID (tuned) | 0.21 | 99.2 | 2.20 | 0 | 4150 | 279 | 0 |
-| | **MPC** | 0.34 | 98.5 | **1.52** | 0 | **4058** | **45** | 0 |
+| | MPC | 0.34 | 98.5 | 1.52 | 0 | 4058 | 45 | 0 |
 | cucumber heat wave | PID | 1.43 | 77.7 | 5.86 | 0 | 653 | 161 | 0 |
-| | **MPC** | 1.43 | 77.7 | 5.86 | 0 | **597 (−8.5 %)** | **29** | 0 |
+| | MPC | 1.43 | 77.7 | 5.86 | 0 | 597 | 29 | 0 |
 | broiler brooding (120 h) | legacy FIS | 21.2 | 0 | 25.0 | 120 | 6434* | 9 | 120 |
-| | **fuzzy-PI** | 0.16 | 99.7 | 3.55 | 0 | 14338 | 155 | 0 |
-| | **MPC** | 0.15 | 99.9 | 1.66 | 0 | 14283 | 30 | 0 |
-| **sensor & boiler faults** | fuzzy-PI (rules only) | 3.07 | 86.7 | 13.6 | 5.9 | 5830 | 123 | 0 |
-| | **fuzzy-PI + AI monitor** | **0.35** | **97.4** | **3.25** | **0** | 6216 | 123 | 0 |
+| | fuzzy-PI | 0.16 | 99.7 | 3.55 | 0 | 14338 | 155 | 0 |
+| | MPC | 0.15 | 99.9 | 1.66 | 0 | 14283 | 30 | 0 |
+| vertical farm, LEDs | fuzzy-PI | 0.31 | 98.6 | 3.70 | 0 | 421 | 66 | 0 |
+| | PID | 0.22 | 98.9 | 2.73 | 0 | 420 | 135 | 0 |
+| | MPC | 1.80 | 48.9 | 6.12 | 2.0 | 432 | 477 | 0 |
+| sensor and boiler faults | fuzzy-PI, rules only | 1.71 | 65.2 | 4.14 | 0 | 5514 | 114 | 0 |
+| | fuzzy-PI + AI monitor | 0.35 | 97.6 | 3.25 | 0 | 6213 | 124 | 0 |
+| total sensor loss (2 h) | legacy FIS | 11.0 | 0.1 | 14.8 | 23.6 | 2295 | 3 | 36 |
+| | fuzzy-PI, fail-safe | 0.54 | 93.8 | 4.25 | 0 | 5846 | 67 | 0 |
 
-\* The legacy controller "saves" energy only because it leaves the chicks 20 K too cold.
+\* The legacy controller uses less energy only because it leaves the chicks 20 K too cold.
 
-**Takeaways (honest reading):**
+**What the results show:**
 * Every redesigned controller beats the original by an order of magnitude and never heats and
   cools at the same time.
-* The tuned PID tracks slightly more tightly than fuzzy-PI in these scenarios, but fuzzy-PI moves
-  the actuators **1.5–5× less** (typically about 2.5×, so less valve and burner wear) and is
-  setpoint-independent by design.
-* **MPC** uses the forecast and recipe preview. It uses the least energy of the redesigned controllers in every scenario (−0.4 %
-  to −8.5 % vs PID), often has the lowest peak error, and moves the actuators **2–20× less** than
-  PID (typically 5–10×). The cost is a learned model and more computation.
-* **AI fault detection matters most.** A frozen transmitter passes every rule-based check
-  (in range, plausible rate, "most continuous" signal), and the rule-based supervisor follows it
-  into a 13 K error and 6 h of chilling. The AI monitor flags it **33 min after it freezes**,
-  before the evening temperature drop. It raises **zero false alarms** in the 7 healthy
-  scenarios and also reports the weak boiler.
-* Frost and heat-wave rows are limited by physical capacity (heater and pad cooler at 100 %).
-  No controller can beat that; the scenarios show sizing problems before hardware is bought.
-* The ±0.4 K ripple on humid tomato nights is the **temperature/humidity coupling** of the
-  heat-and-vent dehumidification (RH > 88 %). It is real behaviour, and MIMO climate control is
-  on the roadmap.
+* The tuned PID tracks slightly more tightly than fuzzy-PI; fuzzy-PI moves the actuators 1.5–5×
+  less (about 2.5× typically), which means less valve, burner and compressor wear.
+* MPC uses the forecast and the recipe preview. Where its model covers the load, it uses the least
+  energy (−0.4 % to −8.5 % vs PID) and moves the actuators 2–20× less. In the vertical farm its
+  model has no input for the LED load, and it performs clearly worse than feedback control.
+* Sensor faults: with two sensors, the AI monitor isolates frozen and drifting sensors that rules
+  alone cannot attribute (97.6 % vs 65 % in band). The frozen sensor is flagged 33 min after it
+  freezes, the weak boiler is reported, and no false alarms occur in the eight healthy
+  scenarios. A third sensor with median voting solves most faults without AI
+  ([analysis 06](analysis/output/06_fault_detection.md)).
+* Frost and heat-wave results are limited by equipment capacity; no controller can do better.
+  [Design calculations](docs/DESIGN_CALCULATIONS.md) show these limits in advance.
+* The ±0.4 K ripple on humid tomato nights comes from the temperature/humidity coupling of
+  heat-and-vent dehumidification (RH > 88 %).
 
 | Tomato greenhouse | Sensor & actuator faults |
 |---|---|
@@ -201,8 +210,9 @@ KPIs use the **true** air temperature, which is what the crop or animals experie
 
 ## 3. Agricultural task scenarios
 
-All scenarios are YAML files in [`scenarios/`](scenarios). Each contains the agronomic
-background, facility, weather, recipe, limits and faults.
+All scenarios are YAML files in [`scenarios/`](scenarios), each with its agronomic background
+inside. **[docs/SCENARIOS.md](docs/SCENARIOS.md)** explains the real-world problem, what each one
+tests and the results.
 
 ```mermaid
 mindmap
@@ -210,15 +220,18 @@ mindmap
     Greenhouses
       tomato day/night DIF
       cucumber heat wave
-      sensor and boiler faults
     Protected cultivation
       strawberry frost night
       seed germination chamber
+      vertical farm LEDs
     Livestock
       broiler brooding curve
     Post-harvest and fungi
       cold store door openings
       mushroom spawn to pinning
+    Failures
+      sensor and boiler faults
+      total sensor loss
 ```
 
 | Scenario | Facility | Agricultural task | What it tests |
@@ -230,7 +243,9 @@ mindmap
 | `broiler_brooding` | tunnel-ventilated broiler house | chicks days 7–12, brooding curve 29 → 27 °C, minimum ventilation | slow recipe, large internal heat gain |
 | `cold_storage_door_openings` | post-harvest cold room | vegetables at 2 °C, forklift door every 3 h | refrigeration, door disturbances, freezing limit |
 | `mushroom_spawn_to_pinning` | mushroom room | spawn run 25 °C → pinning drop to 18 °C | compost heat, recipe step, high RH |
+| `vertical_farm_lettuce` | insulated indoor farm | lettuce, 16 h LED photoperiod (30 kW heat) | large periodic disturbance, cooling-dominated |
 | `greenhouse_sensor_actuator_faults` | glasshouse | tomato crop with drift, frozen sensor, spikes and boiler loss | supervisor, AI anomaly monitor |
+| `sensor_loss_failsafe` | glasshouse | all sensors lost for 2 h on a 0 °C night | fail-safe mode, bumpless return |
 
 ```mermaid
 flowchart LR
@@ -242,10 +257,8 @@ flowchart LR
   F & W & R & LIM & FD --> SIM["closed-loop simulation"] --> K["KPIs · plots · CSV logs"]
 ```
 
-Write your own by copying one of them. You can override any facility parameter
-(`facility_overrides:`), replay recorded weather (`weather: {type: csv, path: ...}`), and inject
-faults (`faults:` for sensors and actuators) or disturbances (`door`, `infiltration`,
-`internal_gain`).
+Write your own by copying one of them; the template and all options are in
+[docs/SCENARIOS.md](docs/SCENARIOS.md#writing-your-own-scenario).
 
 ## 4. Quick start
 
@@ -259,7 +272,7 @@ agriclimate run tomato_greenhouse_spring --plot tomato.png # compare fuzzy_pi / 
 agriclimate run greenhouse_sensor_actuator_faults -c fuzzy_pi fuzzy_pi+ai
 agriclimate benchmark --plots --out results                # all scenarios, all controllers
 agriclimate analyze-legacy --plot surfaces.png             # audit of the original FIS
-pytest -q                                                  # 30 tests
+pytest -q                                                  # 34 tests
 ```
 
 Python API:
@@ -310,7 +323,7 @@ How the anomaly monitor decides:
 flowchart TD
   X["each sensor, every 60 s"] --> RES["residual = measured change −<br/>change predicted by the learned model"]
   RES --> WIN["30-sample window features<br/>mean · sum · std · max residual · signal variation"]
-  WIN --> SC{"IsolationForest score below<br/>threshold, or flat-lined signal?"}
+  WIN --> SC{"IsolationForest score below threshold,<br/>flat-lined or drifting signal?"}
   SC -- "no" --> OK["healthy count +1<br/>release flag after 30"]
   SC -- "yes" --> CNT["anomaly count +1<br/>flag after 5 in a row"]
   CNT --> ALL{"all sensors flagged?"}
@@ -324,7 +337,7 @@ flowchart TD
 |---|---|---|
 | System identification | `agriclimate identify [--csv site_log.csv] --out model.json` · `ai/sysid.py` | energy-balance regressors, actuator lags found by grid search, reports 1 h open-loop RMSE; `residual="mlp"` adds a neural correction |
 | MPC | controller `mpc` · `control/mpc.py` | 1 h horizon, move blocking, forecast + recipe preview, offset-free, fuzzy-PI fallback |
-| Anomaly monitor | suffix `+ai` · `ai/anomaly.py` | trained on healthy data only (no labelled faults needed), threshold calibrated for no false alarms, common-mode logic, flat-line and heater-underperformance checks |
+| Anomaly monitor | suffix `+ai` · `ai/anomaly.py` | trained on healthy data only (no labelled faults needed), threshold calibrated for no false alarms, common-mode logic, flat-line, drift and heater-underperformance checks |
 | Auto-tuning | `agriclimate tune <scenario> --controller fuzzy_pi` · `ai/tuner.py` | differential evolution over log-scaled gains; cost = tracking + stress + wear + energy |
 | LLM recipe assistant | `agriclimate advise "cherry tomato transplants, 2 weeks then hardening" --simulate` | Claude (`claude-opus-5`) structured output → `validate_recipe` hard envelope → simulated → human approval |
 | LLM shift report | `agriclimate report greenhouse_sensor_actuator_faults` | explains alarms and KPIs, suggests maintenance |
@@ -454,11 +467,12 @@ agriclimate/
   io/         Modbus TCP, MQTT, real-time edge loop, virtual PLC
   runtime.py  one control cycle shared by simulation, ROS 2 and the edge loop
   cli.py      `agriclimate` command
-scenarios/    agricultural task scenarios (YAML)
+scenarios/    agricultural task scenarios (YAML), explained in docs/SCENARIOS.md
+analysis/     engineering analyses (design calculations, tuning, robustness, fault detection)
 ros2_ws/src/agriclimate_ros/   ROS 2 package: nodes, launch files, config
 matlab/       original FIS (unchanged)
 generated/    exported PLC / firmware / MATLAB artefacts
-docs/         implementation guide, benchmark results and figures
+docs/         theory, design calculations, architecture, implementation guide, benchmark results
 tests/        pytest suite
 ```
 
@@ -467,6 +481,7 @@ tests/        pytest suite
 * MIMO climate control: temperature, humidity/VPD and CO₂ with a multi-input fuzzy or MPC
   formulation.
 * Weather-forecast API adapter (e.g. Open-Meteo) for MPC on real sites.
+* Scheduled loads (lights, feeding, door schedules) as feed-forward inputs of the MPC model.
 * Safe reinforcement learning inside the safety supervisor.
 * Crop-growth models (e.g. TOMGRO) for economic, yield-aware MPC.
 * OPC UA server and a micro-ROS ESP32 sensor-node example.

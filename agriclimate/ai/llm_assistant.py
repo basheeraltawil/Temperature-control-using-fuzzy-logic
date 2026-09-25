@@ -35,6 +35,7 @@ ENVELOPE = {"min_c": -2.0, "max_c": 40.0, "max_dif_k": 12.0, "max_step_k_per_h":
 
 
 class RecipeStage(BaseModel):
+    """One growth stage of a climate recipe (temperatures in degC, hours 0-24)."""
     name: str
     duration_days: float
     day_temp_c: float
@@ -47,6 +48,7 @@ class RecipeStage(BaseModel):
 
 
 class ClimateRecipe(BaseModel):
+    """Structured recipe returned by the LLM; always check it with validate_recipe()."""
     crop: str
     facility: str
     stages: List[RecipeStage]
@@ -57,6 +59,7 @@ class ClimateRecipe(BaseModel):
 
 
 class ShiftReport(BaseModel):
+    """Structured operator report returned by the LLM."""
     summary: str
     incidents: List[str]
     root_causes: List[str]
@@ -106,6 +109,7 @@ def _parse(system: str, prompt: str, schema):
 
 # --------------------------------------------------------------------- recipes
 def generate_recipe(request: str, facility: str = "greenhouse") -> ClimateRecipe:
+    """Ask the LLM for a staged recipe. The result is a draft: validate, simulate, then approve."""
     prompt = f"Facility type: {facility}\nGrower request:\n{request}"
     return _parse(SYSTEM_RECIPE, prompt, ClimateRecipe)
 

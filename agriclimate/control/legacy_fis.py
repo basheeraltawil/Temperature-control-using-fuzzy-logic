@@ -15,6 +15,7 @@ DEFAULT_FIS = find_file("matlab", "temperature_controlling1.fis")
 
 
 class LegacyFISController(Controller):
+    """Runs the original two-output MATLAB FIS unchanged (baseline only)."""
     name = "legacy_fis"
 
     def __init__(self, fis_path=DEFAULT_FIS, min_vent: float = 0.0):
@@ -23,6 +24,7 @@ class LegacyFISController(Controller):
         self.no_rule_count = 0
 
     def update(self, ctx: ControlContext) -> ActuatorCommand:
+        """Evaluate the FIS on (sensed, target); no rule fired -> both outputs 0."""
         res = self.fis.evaluate((ctx.temperature, ctx.setpoint), default=(0.0, 0.0))
         if not res.fired:
             self.no_rule_count += 1

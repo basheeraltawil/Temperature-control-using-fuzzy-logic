@@ -1,19 +1,21 @@
 """Setpoint schedules used by agricultural climate recipes."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Sequence, Tuple
 
 import numpy as np
 
 
 class Schedule:
+    """Base class: a callable that returns the setpoint (degC) at time t_s (s)."""
     def __call__(self, t_s: float) -> float:
         raise NotImplementedError
 
 
 @dataclass
 class ConstantSchedule(Schedule):
+    """Fixed setpoint."""
     value: float
 
     def __call__(self, t_s: float) -> float:
@@ -80,6 +82,7 @@ class BroodingSchedule(Schedule):
 
 
 def schedule_from_config(cfg) -> Schedule:
+    """Build a schedule from a number or from a ``{type: ...}`` YAML mapping."""
     if isinstance(cfg, (int, float)):
         return ConstantSchedule(float(cfg))
     cfg = dict(cfg)

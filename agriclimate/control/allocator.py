@@ -20,6 +20,7 @@ from ..plant.facility import ActuatorCommand
 
 @dataclass
 class SplitRangeAllocator:
+    """Maps the signed demand u in [-1, 1] to heater, cooler and vent commands."""
     deadband: float = 0.02
     vent_stage: float = 0.5          # share of the cooling range served by vents (0 = none)
     min_vent: float = 0.0            # minimum ventilation (CO2 / ammonia / air quality)
@@ -29,6 +30,7 @@ class SplitRangeAllocator:
     dehum_heat: float = 0.10
 
     def allocate(self, demand: float, t_air: float, t_out: float, rh: float = 50.0) -> ActuatorCommand:
+        """Return the actuator command for demand u at the given indoor/outdoor state."""
         u = min(1.0, max(-1.0, float(demand)))
         heater = cooler = 0.0
         vent = self.min_vent

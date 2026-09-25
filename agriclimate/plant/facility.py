@@ -13,7 +13,7 @@ Vapour: V drho_v/dt = E_crop + E_int + F_vent (rho_v,o - rho_v) + pad/coil terms
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from typing import Dict, Optional
 
 import numpy as np
@@ -24,6 +24,7 @@ from .weather import WeatherSample
 
 @dataclass
 class FacilityParams:
+    """Physical parameters of a climate zone (SI units; see presets.py for examples)."""
     name: str = "greenhouse"
     floor_area: float = 1000.0            # m2
     volume: float = 4500.0                # m3
@@ -58,6 +59,7 @@ class FacilityParams:
 
     @classmethod
     def from_dict(cls, d: Dict) -> "FacilityParams":
+        """Create parameters from a mapping; unknown keys raise an error."""
         known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         unknown = set(d) - set(known)
         if unknown:
@@ -70,14 +72,17 @@ class FacilityParams:
 
 @dataclass
 class ActuatorCommand:
+    """Actuator commands, each 0..1."""
     heater: float = 0.0   # 0..1  (8-bit PWM 0..255 on the legacy hardware)
     cooler: float = 0.0   # 0..1
     vent: float = 0.0     # 0..1  (vent opening or fan stage)
 
     def clipped(self) -> "ActuatorCommand":
+        """Copy with every command limited to 0..1."""
         return ActuatorCommand(*(float(np.clip(v, 0.0, 1.0)) for v in (self.heater, self.cooler, self.vent)))
 
     def as_pwm(self) -> Dict[str, int]:
+        """Commands as 8-bit PWM duties (0..255), as in the original project."""
         c = self.clipped()
         return {"heater": round(c.heater * 255), "cooler": round(c.cooler * 255), "vent": round(c.vent * 255)}
 
@@ -92,6 +97,7 @@ class ActuatorHealth:
 
 @dataclass
 class FacilityState:
+    """Simulated state: temperatures, vapour density, actuator positions, energy counters."""
     t_air: float
     t_mass: float
     rho_v: float                       # kg/m3
@@ -104,6 +110,7 @@ class FacilityState:
 
 
 class Facility:
+    """Two-node thermal model with vapour balance; see the module docstring for the equations."""
     def __init__(self, params: FacilityParams, t_init: float = 18.0, rh_init: float = 70.0):
         self.p = params
         p = params
@@ -116,6 +123,7 @@ class Facility:
 
     @property
     def rh(self) -> float:
+        """Indoor relative humidity, %."""
         return float(relative_humidity(self.state.t_air, self.state.rho_v))
 
     def _actuators(self, cmd: ActuatorCommand, dt: float) -> None:
@@ -130,6 +138,7 @@ class Facility:
 
     def step(self, dt: float, cmd: ActuatorCommand, w: WeatherSample,
              extra_ach: float = 0.0, extra_gain_w: float = 0.0, substep: float = 2.0) -> FacilityState:
+        """Advance the model by dt seconds (explicit Euler with sub-steps of at most `substep` s)."""
         n = max(1, int(np.ceil(dt / substep)))
         h = dt / n
         for _ in range(n):

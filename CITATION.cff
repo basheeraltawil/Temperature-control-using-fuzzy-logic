@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Temperature control using fuzzy logic: fuzzy and AI climate control for agricultural facilities"
+authors:
+  - family-names: "Al-Tawil"
+    given-names: "Basheer"
+version: 2.0.0
+date-released: 2026-09-25
+license: MIT
+repository-code: "https://github.com/basheeraltawil/Temperature-control-using-fuzzy-logic"
+keywords: [fuzzy logic, climate control, greenhouse, agriculture, model predictive control, anomaly detection, ROS 2]

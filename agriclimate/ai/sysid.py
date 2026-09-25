@@ -27,18 +27,21 @@ REQUIRED_COLUMNS = ["t_s", "t_meas", "heater", "cooler", "vent", "t_out", "rh_ou
 LAG_GRID = (0.0, 60.0, 180.0, 300.0, 600.0)
 
 
-def _wet_bulb(t: float, rh: float) -> float:
+def wet_bulb(t: float, rh: float) -> float:
+    """Stull (2011) wet-bulb temperature, scalar version (fast in MPC loops)."""
     return (t * math.atan(0.151977 * math.sqrt(rh + 8.313659)) + math.atan(t + rh)
             - math.atan(rh - 1.676331) + 0.00391838 * rh ** 1.5 * math.atan(0.023101 * rh) - 4.686035)
 
 
 def _features(T, T_prev, hf, cf, vent, t_out, rh_out, solar) -> List[float]:
-    t_sup = t_out - 0.8 * (t_out - _wet_bulb(t_out, rh_out))
+    """Regressors in the order of FEATURES (one row of the design matrix)."""
+    t_sup = t_out - 0.8 * (t_out - wet_bulb(t_out, rh_out))
     return [t_out - T, hf, cf, cf * (t_sup - T), vent * (t_out - T), solar / 1000.0, T - T_prev, 1.0]
 
 
 @dataclass
 class ModelState:
+    """State of the learned model: temperature now and one step ago, filtered actuator inputs."""
     T: float
     T_prev: float
     hf: float = 0.0      # filtered heater
@@ -47,6 +50,7 @@ class ModelState:
 
 @dataclass
 class LearnedThermalModel:
+    """Grey-box model  dT_{k+1} = theta . phi(T_k, T_{k-1}, u_k, weather_k)  fitted by ridge regression."""
     dt: float = 60.0                           # model sample time, s
     alpha: float = 1e-3                        # ridge regularisation
     residual: Optional[str] = None             # None | "mlp"
@@ -60,6 +64,7 @@ class LearnedThermalModel:
     # ------------------------------------------------------------ training
     @staticmethod
     def resample(df, dt: float):
+        """Average inputs and take the first temperature in each dt bin."""
         missing = set(REQUIRED_COLUMNS) - set(df.columns)
         if missing:
             raise ValueError(f"training data is missing columns {sorted(missing)}")
@@ -98,6 +103,7 @@ class LearnedThermalModel:
         return coef, scale
 
     def fit(self, df, validation_fraction: float = 0.25) -> "LearnedThermalModel":
+        """Identify actuator lags (grid search) and coefficients; report validation metrics."""
         d = self.resample(df, self.dt)
         n_val = max(int(len(d) * validation_fraction), 10)
         train, val = d.iloc[:-n_val].reset_index(drop=True), d.iloc[-n_val:].reset_index(drop=True)
@@ -175,6 +181,7 @@ class LearnedThermalModel:
 
     # --------------------------------------------------------- persistence
     def save(self, path) -> None:
+        """Write the linear model to JSON (coefficients, scaling, lags, metrics)."""
         if self._mlp is not None:
             raise NotImplementedError("persisting the MLP residual: use joblib on model._mlp")
         Path(path).write_text(json.dumps({
@@ -184,6 +191,7 @@ class LearnedThermalModel:
 
     @classmethod
     def load(cls, path) -> "LearnedThermalModel":
+        """Read a model written by save()."""
         d = json.loads(Path(path).read_text())
         return cls(dt=d["dt"], alpha=d["alpha"], tau_heater=d["tau_heater"], tau_cooler=d["tau_cooler"],
                    coef=np.array(d["coef"]), scale=np.array(d["scale"]), metrics=d.get("metrics", {}))
@@ -201,6 +209,7 @@ def excitation_experiment(scenario, hours: float = 48.0, seed: int = 0):
     rng = np.random.default_rng(seed)
 
     class Dithered(Controller):
+        """PI loop with random setpoint offsets and a random dither on the demand."""
         name = "excitation"
 
         def __init__(self):
@@ -208,6 +217,7 @@ def excitation_experiment(scenario, hours: float = 48.0, seed: int = 0):
             self.hold, self.dither, self.offset = 0.0, 0.0, 0.0
 
         def update(self, ctx):
+            """PI demand for a randomly offset setpoint plus a random dither."""
             if ctx.t_s >= self.hold:
                 self.hold = ctx.t_s + rng.uniform(300, 1800)
                 self.dither = rng.choice([-0.4, -0.2, 0.0, 0.2, 0.4])
@@ -215,5 +225,6 @@ def excitation_experiment(scenario, hours: float = 48.0, seed: int = 0):
             ctx.setpoint += self.offset
             return float(np.clip(self.pid.update(ctx) + self.dither, -1, 1))
 
-    sc = scenario.copy(duration_h=hours, faults={}, disturbances=[])
+    # keep the normal disturbances (lights, doors, animals): real commissioning data contains them
+    sc = scenario.copy(duration_h=hours, faults={})
     return run_scenario(sc, controller=Dithered(), seed=seed).log

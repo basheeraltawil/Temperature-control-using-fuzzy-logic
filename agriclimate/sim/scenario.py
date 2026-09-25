@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
 
@@ -21,6 +21,7 @@ from ..paths import find_file, first_dir
 
 @dataclass
 class Scenario:
+    """Everything needed to simulate one agricultural task (loaded from YAML)."""
     name: str
     description: str
     facility: FacilityParams
@@ -43,6 +44,7 @@ class Scenario:
 
     # ------------------------------------------------------------- builders
     def weather(self):
+        """Build the weather source."""
         cfg = dict(self.weather_cfg)
         kind = cfg.pop("type", "synthetic")
         cfg.pop("forecast_error_std", None)
@@ -52,16 +54,20 @@ class Scenario:
         return SyntheticWeather(**cfg)
 
     def allocator(self) -> SplitRangeAllocator:
+        """Build the split-range allocator."""
         return SplitRangeAllocator(**self.allocator_cfg)
 
     def supervisor_config(self) -> SupervisorConfig:
+        """Build the supervisor configuration."""
         return SupervisorConfig(**self.supervisor_cfg)
 
     def sensor_faults(self, index: int) -> List[SensorFault]:
+        """Faults configured for sensor ``index`` (0-based)."""
         return [SensorFault(**{k: v for k, v in f.items() if k != "sensor"})
                 for f in self.faults.get("sensors", []) if int(f.get("sensor", 1)) == index + 1]
 
     def copy(self, **changes) -> "Scenario":
+        """Deep copy with some attributes replaced, e.g. copy(duration_h=24)."""
         new = copy.deepcopy(self)
         for k, v in changes.items():
             setattr(new, k, v)
@@ -70,6 +76,7 @@ class Scenario:
     # ------------------------------------------------------------- loading
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Scenario":
+        """Build a scenario from a parsed YAML mapping."""
         d = copy.deepcopy(d)
         fac = d.get("facility", "greenhouse_glass")
         params = get_preset(fac) if isinstance(fac, str) else FacilityParams.from_dict(fac)
@@ -90,6 +97,7 @@ class Scenario:
 
     @classmethod
     def load(cls, path_or_name) -> "Scenario":
+        """Load a scenario by file path or by name from the scenarios folder."""
         p = Path(path_or_name)
         if not p.exists():
             p = find_file("scenarios", f"{path_or_name}.yaml")
@@ -98,4 +106,5 @@ class Scenario:
 
 
 def list_scenarios() -> List[str]:
+    """Names of the available scenario files."""
     return sorted(p.stem for p in first_dir("scenarios").glob("*.yaml"))

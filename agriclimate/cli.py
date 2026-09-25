@@ -31,6 +31,7 @@ def _run_one(args):
 
 
 def cmd_list(a):
+    """Print the available scenarios."""
     from .sim import Scenario, list_scenarios
 
     for n in list_scenarios():
@@ -39,6 +40,7 @@ def cmd_list(a):
 
 
 def cmd_run(a):
+    """Simulate one scenario for several controllers and print the KPI table."""
     from .sim import Scenario, metrics_table
     from .sim.plots import plot_comparison
 
@@ -60,8 +62,7 @@ def cmd_run(a):
 
 
 def cmd_benchmark(a):
-    import pandas as pd
-
+    """Run many scenarios/controllers in parallel; write CSV, Markdown and plots."""
     from .sim import Scenario, list_scenarios, metrics_table
     from .sim.plots import plot_comparison
 
@@ -89,6 +90,7 @@ def cmd_benchmark(a):
 
 
 def cmd_tune(a):
+    """Auto-tune controller gains with differential evolution."""
     from .ai.tuner import tune
     from .sim import Scenario
 
@@ -100,6 +102,7 @@ def cmd_tune(a):
 
 
 def cmd_identify(a):
+    """Identify a thermal model from the twin or from a CSV log."""
     import pandas as pd
 
     from .ai.sysid import LearnedThermalModel, excitation_experiment
@@ -117,6 +120,7 @@ def cmd_identify(a):
 
 
 def cmd_analyze_legacy(a):
+    """Report rule coverage and output overlap of the original MATLAB FIS."""
     from .control.legacy_fis import DEFAULT_FIS
     from .fuzzy import fuzzy_pi_rulebase, load_fis
     from .sim.plots import plot_fis_surfaces
@@ -136,6 +140,7 @@ def cmd_analyze_legacy(a):
 
 
 def cmd_export(a):
+    """Write the fuzzy-PI as MATLAB .fis, IEC 61131-3 ST and a C header."""
     from .control.fuzzy_pi import FuzzyPIController
     from .fuzzy import save_fis
     from .fuzzy.codegen import build_lut, to_c_header, to_iec_st
@@ -153,6 +158,7 @@ def cmd_export(a):
 
 
 def cmd_advise(a):
+    """Draft a recipe with the LLM, validate it and write a scenario file."""
     import yaml
 
     from .ai.llm_assistant import generate_recipe, recipe_to_scenario, validate_recipe
@@ -176,6 +182,7 @@ def cmd_advise(a):
 
 
 def cmd_report(a):
+    """Simulate a scenario and ask the LLM for an operator shift report."""
     from .ai.llm_assistant import shift_report
     from .sim import Scenario, run_scenario
 
@@ -187,6 +194,7 @@ def cmd_report(a):
 
 
 def main(argv=None):
+    """Entry point of the ``agriclimate`` command."""
     ap = argparse.ArgumentParser(prog="agriclimate", description="Fuzzy + AI agricultural climate control")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
